@@ -33,3 +33,8 @@ The module class provides the following methods:
 | register_first(self, event, function)          | Register an event so that it is executed first, not guaranteed to be first but it will be before everything registered normally. |
 | trigger(self, event, \*args, \*\*kwargs)       | Trigger the event immediately.                                                                                                   | 
 | trigger_avail(self, event, \*args, \*\*kwargs) | Trigger the event once it is registered (lazy execution of an event).                                                            |
+
+# Credit
+
+Code borrowed / stolen / adapted from:
+* https://github.com/cea-sec/TorPylle
