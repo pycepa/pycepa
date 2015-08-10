@@ -1,5 +1,7 @@
 This is an implementation of the Tor protocol in Python. It's still a work in progress and is nowhere near complete or secure. If you are looking for anonymity, try the official client at https://torproject.org.
 
+This product is produced independently from the Tor® anonymity software and carries no guarantee from The Tor Project about quality, suitability or anything else.
+
 # Module Writing
 
 Modules can be written as either a single file or a python package. A single file module must include a class with the same name as the module name.
