@@ -40,3 +40,6 @@ The module class provides the following methods:
 
 Code borrowed / stolen / adapted from:
 * https://github.com/cea-sec/TorPylle
+
+# Why 'pycepa'?
+The Tor Project prefer if people not use 'tor' in their project names, and 'pycepa' sounded better than 'pyonion'. 'cepa', being latin for onion. :)
