@@ -1,5 +1,7 @@
 from core.Module import Module
 import select
+import logging
+log = logging.getLogger(__name__)
 
 class Select(Module):
     """
@@ -25,10 +27,6 @@ class Select(Module):
     def module_load(self):
         self.running = True
 
-        self.readable = []
-        self.writable = []
-        self.exceptional = []
-
         self.register('booted', self.booted)
         self.register('quit', self.quit)
         self.register('fd_readable', self.fd_readable)
@@ -38,42 +36,64 @@ class Select(Module):
         self.register('fd_exceptional', self.fd_exceptional)
         self.register('fd_unexceptional', self.fd_unexceptional)
 
+        self.fds = {}
+        self.poll = select.poll()
+
     def booted(self):
         while self.running:
-            r, w, x = select.select(self.readable, self.writable, self.exceptional)
+            events = self.poll.poll()
 
-            for readable in r:
-                self.trigger('fd_%s_readable' % readable, readable)
+            event_strings = {
+                select.POLLIN: 'fd_%s_readable',
+                select.POLLOUT: 'fd_%s_writable',
+                select.POLLPRI: 'fd_%s_exceptional',
+            }
 
-            for writable in w:
-                self.trigger('fd_%s_writable' % writable, writable)
+            if not events:
+                continue
 
-            for exceptional in x:
-                self.trigger('fd_%s_exceptional' % exceptional, exceptional)
+            for event in events:
+                fd = self.fds[event[0]]['fd']
+                self.trigger(event_strings[event[1]] % fd, fd)
 
     def quit(self):
         self.running = False
 
+    def init_fd(self, fd, event, add=True):
+        fno = fd.fileno()
+
+        if fno not in self.fds:
+            if not add:
+                return
+
+            self.fds[fno] = {}
+            self.fds[fno] = { 'fd': fd, 'events': 0 }
+
+        if add:
+            self.fds[fno]['events'] |= event
+        elif self.fds[fno]['events'] & event:
+            self.fds[fno]['events'] ^= event
+
+        if self.fds[fno]['events'] == 0:
+            del self.fds[fno]
+            self.poll.unregister(fno)
+        else:
+            self.poll.register(fno, self.fds[fno]['events'])
+
     def fd_readable(self, fd):
-        if not fd in self.readable:
-            self.readable.append(fd)
+        self.init_fd(fd, select.POLLIN)
 
     def fd_unreadable(self, fd):
-        if fd in self.readable:
-            self.readable.remove(fd)
+        self.init_fd(fd, select.POLLIN, add=False)
 
     def fd_writable(self, fd):
-        if not fd in self.writable:
-            self.writable.append(fd)
+        self.init_fd(fd, select.POLLOUT)
 
     def fd_unwritable(self, fd):
-        if fd in self.writable:
-            self.writable.remove(fd)
+        self.init_fd(fd, select.POLLOUT, add=False)
 
     def fd_exceptional(self, fd):
-        if not fd in self.exceptional:
-            self.exceptional.append(fd)
+        self.init_fd(fd, select.POLLPRI)
 
     def fd_unexceptional(self, fd):
-        if fd in self.exceptional:
-            self.exceptional.remove(fd)
+        self.init_fd(fd, select.POLLPRI, add=False)
