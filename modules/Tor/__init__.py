@@ -12,10 +12,10 @@ class Tor(Module):
         modules.load_module('Tor.Router')
         log.info('initializing Tor.')
 
-        self.guard_node = ['Exit', 'Stable', 'Fast']
+        self.guard_node = ['Guard', 'Stable', 'Fast', 'Valid', 'Running']
 
         self.register('tor_got_md_%s' % self.guard_node, self.guard)
-        self.trigger('tor_get_router', self.guard_node)
+        self.trigger_avail('tor_get_router', self.guard_node)
 
     def guard(self, md):
         self.unregister('tor_got_md_%s' % self.guard_node, self.guard)
