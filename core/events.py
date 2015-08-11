@@ -86,6 +86,10 @@ class Events(object):
         return ret
 
     def do_trace(self):
+        # trace is expensive so only do it when we need it
+        if log.level <= logging.DEBUG:
+            return ''
+
         trace = traceback.extract_stack()[::-1]
         for t in trace:
             if os.path.basename(t[0]) in [ 'events.py', 'Module.py', 'LocalModule.py' ]:
