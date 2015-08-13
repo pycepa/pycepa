@@ -57,14 +57,34 @@ class VariableCell(object):
 
 class Relay(FixedCell):
     cell_type = 3
+    relay_type = 0
 
     def get_str(self):
         if not self.data['data']:
             self.data['data'] = ''
 
-        return struct.pack('>BHH4sH498s', self.data['relay_cmd'], 0,
+        return struct.pack('>BHH4sH498s', self.relay_type, 0,
             self.data['stream_id'], self.data['digest'], len(self.data['data']),
             self.data['data'])
+
+    # i can't (currently) implement this as the unpack() function because it needs
+    # to be decrypted first.
+    def parse(self):
+        headers = struct.unpack('>BHHIH', self.data[:11])
+        self.data = self.data[11:]
+
+        if len(self.data) < headers[4]:
+            raise CellError('Could not parse relay length.')
+
+        self.data = {
+            'command': headers[0],
+            'command_text': relay_types[headers[0]],
+            'recognized': headers[1],
+            'stream_id': headers[2],
+            'digest': headers[3],
+            'length': headers[4],
+            'data': self.data[:headers[4]]
+        }
 
     def pack(self, data):
         return super(Relay, self).pack(self.data)
@@ -161,7 +181,14 @@ class Netinfo(FixedCell):
         address = struct.unpack('>%ds' % size, data[:size])[0]
         data    = data[size:]
 
-        return host_type, socket.inet_ntoa(address), data
+        if host_type == 4:
+            address = socket.inet_ntop(socket.AF_INET, address)
+        elif host_type == 6:
+            address = socket.inet_ntop(socket.AF_INET6, address)
+        else:
+            raise CellError('Do we allow hostnames in NETINFO?')
+
+        return host_type, address, data
 
     def pack(self, data):
         ips = data
@@ -232,6 +259,12 @@ def cell_type_to_name(cell_type):
     else:
         return ''
 
+def relay_name_to_command(name):
+    if name in relay_commands:
+        return relay_commands.index(name)
+    else:
+        return -1
+
 cell_types = {
     0: Padding,
     3: Relay,
@@ -243,3 +276,10 @@ cell_types = {
     129: Certs,
     130: AuthChallenge
 }
+
+relay_commands = [
+    'RELAY_BEGIN', 'RELAY_DATA', 'RELAY_END', 'RELAY_CONNECTED', 'RELAY_SENDME',
+    'RELAY_EXTEND', 'RELAY_EXTENDED', 'RELAY_TRUNCATE', 'RELAY_TRUNCATED', 
+    'RELAY_DROP', 'RELAY_RESOLVE', 'RELAY_RESOLVED', 'RELAY_BEGIN_DIR',
+    'RELAY_EXTEND2', 'RELAY_EXTENDED2'
+]

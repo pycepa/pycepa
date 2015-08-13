@@ -3,6 +3,7 @@ import ssl
 import logging
 import socket
 log = logging.getLogger(__name__)
+import traceback
 
 class TLSClient(TCPClient):
     def __init__(self, host, port):
@@ -22,7 +23,9 @@ class TLSClient(TCPClient):
         except ssl.SSLError as err:
             if err.args[0] != ssl.SSL_ERROR_WANT_READ:
                 self.die()
-        except socket.error:
+        except socket.error as e:
+            print traceback.print_exc(e)
+            log.error('socket error: %s' % e)
             self.die()
 
     def do_ssl(self):

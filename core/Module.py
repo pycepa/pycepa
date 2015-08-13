@@ -51,6 +51,9 @@ class Module(object):
     def register_first(self, event, function):
         self.events.register_first(event, function)
 
+    def register_once(self, event, function):
+        self.events.register_once(event, function)
+
     def unregister(self, event, function):
         self.events.unregister(event, function)
 

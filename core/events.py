@@ -87,7 +87,7 @@ class Events(object):
 
     def do_trace(self):
         # trace is expensive so only do it when we need it
-        if log.level <= logging.DEBUG:
+        if log.level > logging.DEBUG:
             return ''
 
         trace = traceback.extract_stack()[::-1]

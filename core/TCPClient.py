@@ -4,6 +4,7 @@ import socket
 import errno
 import logging
 log = logging.getLogger(__name__)
+import traceback
 
 class TCPClient(LocalModule):
     def __init__(self, host, port):
@@ -77,7 +78,7 @@ class TCPClient(LocalModule):
     def die(self):
         if not hasattr(self, 'sock') or not self.sock:
             return
-            
+        
         self.closed = True
 
         self.trigger('fd_unreadable', self.sock)

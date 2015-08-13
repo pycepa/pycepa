@@ -8,19 +8,11 @@ log = logging.getLogger(__name__)
 
 class Tor(Module):
     def module_load(self):
-        modules.load_module('Tor.DirServ')
-        modules.load_module('Tor.Router')
+        modules.load_module('Tor.Proxy')
+        modules.load_module('Tor.TorSocket')
         log.info('initializing Tor.')
 
         self.guard_node = ['Guard', 'Stable', 'Fast', 'Valid', 'Running']
-
-        self.register('tor_got_md_%s' % self.guard_node, self.guard)
-        self.trigger_avail('tor_get_router', self.guard_node)
-
-    def guard(self, md):
-        self.unregister('tor_got_md_%s' % self.guard_node, self.guard)
-        log.info('chosen guard node: %s' % md)
-        self.trigger('tor_init_router', md)
 
 if __name__=='__main__':
     pass
