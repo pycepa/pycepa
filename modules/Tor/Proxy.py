@@ -28,8 +28,12 @@ class TorStream(LocalModule):
 
     def gen_cell(self, command, data=None, digest=None):
         c = cell.Relay(self.circuit.circuit_id)
+
+        if isinstance(command, str):
+            command = cell.relay_name_to_command(command)
+
         c.init_relay({
-            'relay_cmd': command,
+            'command': command,
             'stream_id': self.stream_id,
             'digest': digest or '\x00' * 4,
             'data': data
@@ -44,27 +48,30 @@ class TorStream(LocalModule):
 
     def connect(self, addr, port):
         data = '%s:%d\0%s' % (addr, port, struct.pack('>I', 0))
-        self.send_cell(self.gen_cell(1, data))
+        self.send_cell(self.gen_cell('RELAY_BEGIN', data))
 
     def got_relay(self, circuit_id, stream_id, _cell):
-        command = _cell.data['command']
+        command = _cell.data['command_text']
+        log.debug('Got relay cell: %s' % command)
 
-        if command == 4:
+        if command == 'RELAY_CONNECTED':
             self.connected = True
             self.register('tor_directory_stream_%s_send' % self.stream_id, self.send)
             self.trigger('tor_directory_stream_%s_connected' % self.stream_id,
                 self.stream_id)
-        elif command == 3:
+        elif command == 'RELAY_END':
             self.connected = False
             self.closed = True
-        elif command == 2:
-            self.trigger('tor_directory_stream_%s_recv' % self.stream_id, data)
+            self.trigger('tor_directory_stream_%s_closed' % self.stream_id)
+        elif command == 'RELAY_DATA':
+            self.trigger('tor_directory_stream_%s_recv' % self.stream_id,
+                _cell.data['data'])
 
     def send(self, data):
-        self.send_cell(self.gen_cell(2, data))
+        self.send_cell(self.gen_cell('RELAY_DATA', data))
 
     def directory_stream(self, circuit_id, stream_id):
-        self.send_cell(self.gen_cell(cell.relay_name_to_command('RELAY_BEGIN_DIR')))
+        self.send_cell(self.gen_cell('RELAY_BEGIN_DIR'))
 
 class Circuit(LocalModule):
     def __init__(self, proxy, circuit_id=None):
@@ -177,10 +184,9 @@ class TorConnection(TLSClient):
         while self.in_buffer:
             try:
                 log.debug('received data: %s' % self.in_buffer.encode('hex'))
-                self.in_buffer, self.cell, ready = cell_parser.parse_cell(self.in_buffer,
-                    self.cell)
+                self.in_buffer, self.cell, ready, cont = cell_parser.parse_cell(
+                    self.in_buffer, self.cell)
             except cell.CellError as e:
-                log.debug('test')
                 log.error('invalid cell received: %s' % e)
                 self.die()
                 break
@@ -190,6 +196,10 @@ class TorConnection(TLSClient):
                     (self.cell.circuit_id, cell.cell_type_to_name(self.cell.cell_type)),
                     self.cell.circuit_id, self.cell)
                 self.cell = None
+
+            if not cont:
+                log.debug("don't have enough bytes to read the entire cell, waiting.")
+                break
 
     def send_cell(self, c, data=None):
         if not data:

@@ -57,13 +57,12 @@ class VariableCell(object):
 
 class Relay(FixedCell):
     cell_type = 3
-    relay_type = 0
 
     def get_str(self):
         if not self.data['data']:
             self.data['data'] = ''
 
-        return struct.pack('>BHH4sH498s', self.relay_type, 0,
+        return struct.pack('>BHH4sH498s', self.data['command'], 0,
             self.data['stream_id'], self.data['digest'], len(self.data['data']),
             self.data['data'])
 
@@ -78,7 +77,7 @@ class Relay(FixedCell):
 
         self.data = {
             'command': headers[0],
-            'command_text': relay_types[headers[0]],
+            'command_text': relay_commands[headers[0]],
             'recognized': headers[1],
             'stream_id': headers[2],
             'digest': headers[3],
@@ -278,7 +277,7 @@ cell_types = {
 }
 
 relay_commands = [
-    'RELAY_BEGIN', 'RELAY_DATA', 'RELAY_END', 'RELAY_CONNECTED', 'RELAY_SENDME',
+    '', 'RELAY_BEGIN', 'RELAY_DATA', 'RELAY_END', 'RELAY_CONNECTED', 'RELAY_SENDME',
     'RELAY_EXTEND', 'RELAY_EXTENDED', 'RELAY_TRUNCATE', 'RELAY_TRUNCATED', 
     'RELAY_DROP', 'RELAY_RESOLVE', 'RELAY_RESOLVED', 'RELAY_BEGIN_DIR',
     'RELAY_EXTEND2', 'RELAY_EXTENDED2'

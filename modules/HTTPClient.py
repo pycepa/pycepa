@@ -1,5 +1,5 @@
 from core.Module import Module
-from core.TCPLineClient import TCPLineClient
+from modules.Tor.TorLineClient import TorLineClient
 import urlparse
 import re
 
@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 code_re = re.compile(r'^HTTP/(?P<version>[0-9]\.[0-9]) (?P<status>[0-9]{3}) (?P<reason>.*)$')
 header_re = re.compile(r'^(?P<header>[A-Za-z-]+): (?P<value>.*)$')
 
-class HTTPRequest(TCPLineClient):
+class HTTPRequest(TorLineClient):
     def __init__(self, url, data=None, headers=None, method='GET'):
         self.method = method
         self.headers = headers or {}

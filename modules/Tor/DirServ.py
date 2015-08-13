@@ -25,7 +25,7 @@ class DirServ(Module):
         dir_serv = authorities[0]
 
         self.or_port = dir_serv['or_port']
-        self.ip_address = dir_serv['ip_address']
+        self.ip_address = dir_serv['ip']
         self.dir_port = dir_serv['dir_port']
 
         self.retrieved_consensus = False
@@ -95,6 +95,7 @@ class DirServ(Module):
         request.register_local('done', done)
 
     def chunk(self, c):
+        log.debug('received line: ' + c)
         self.consensus += c
 
     def parse_mds(self):
