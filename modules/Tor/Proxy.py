@@ -274,7 +274,7 @@ class TorConnection(TLSClient):
                                                                 with the given stream id.
         """
         self.node = node
-        self.circuits = {}
+        self.circuits = []
         self.cell = None
         self.in_buffer = ''
         self.name = node['name']
@@ -350,7 +350,7 @@ class TorConnection(TLSClient):
         Initialize a circuit.
         """
         circuit = Circuit(self)
-        self.circuits[circuit.circuit_id] = circuit
+        self.circuits.append(circuit.circuit_id)
         return circuit.circuit_id
 
     def got_versions(self, circuit_id, versions):
@@ -396,13 +396,18 @@ class TorConnection(TLSClient):
         Finds or creates a circuit for a directory stream.
 
         Local events registered:
-            * <circuit_id>_circuit_initialized <circuit_id> - circuit has been initialized.
+            * <circuit_id>_circuit_initialized <circuit_id>  - circuit has been initialized.
+            * <circuit_id>_init_directory_stream <stream_id> - initialize a directory
+                                                               stream on a circuit with the
+                                                               given stream id.
         """
         if not self.circuits:
             circuit_id = self.init_circuit()
             self.waiting[circuit_id] = stream
             self.register_once_local('%d_circuit_initialized' % circuit_id,
                 self.do_directory_stream)
+        else:
+            self.trigger_local('%d_init_directory_stream' % self.circuits[0], stream)
 
     def do_directory_stream(self, circuit_id):
         """
@@ -415,7 +420,6 @@ class TorConnection(TLSClient):
         """
         stream_id = self.waiting[circuit_id]
         del self.waiting[circuit_id]
-
         self.trigger_local('%d_init_directory_stream' % circuit_id, stream_id)
 
 class Proxy(Module):
@@ -436,15 +440,20 @@ class Proxy(Module):
         Initialize a directory stream. Creates a new tor connection, if necessary.
 
         Events registered:
-            * tor_<or_name>_proxy_initialized <or_name> - indicates that the OR connection
-                                                          is ready for use.
+            * tor_<or_name>_proxy_initialized <or_name>      - indicates that the OR
+                                                               connection is ready for
+                                                               use.
+            * tor_<or_name>_init_directory_stream <stream_id - initialize a directory
+                                                               stream, will create
+                                                               circuits as necessary.
         """
-        self.streams.append(stream_id)
-
         if not self.connections:
+            self.streams.append(stream_id)
             self.connections.append(TorConnection(authorities[0]))
             self.register('tor_%s_proxy_initialized' % authorities[0]['name'],
                 self.proxy_initialized)
+        else:
+            self.trigger('tor_%s_init_directory_stream' % authorities[0]['name'], stream_id)
 
     def proxy_initialized(self, name):
         """
@@ -458,3 +467,4 @@ class Proxy(Module):
         for stream in self.streams:
             self.trigger('tor_%s_init_directory_stream' % authorities[0]['name'],
                 stream)
+        self.streams = []

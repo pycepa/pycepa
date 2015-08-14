@@ -95,10 +95,10 @@ class DirServ(Module):
             chunks[0] += c
 
         def done():
-            log.debug('done')
+            log.debug('data: ' + chunks[0])
             self.trigger('tor_got_md_%s' % router, md)
 
-        self.do_http('tor/server/d/%s.z' % (
+        self.do_http('server/d/%s.z' % (
             md['descriptor_id'] + '=').decode('base64').encode('hex'), chunk, done)
 
     def retrieve_consensus(self):

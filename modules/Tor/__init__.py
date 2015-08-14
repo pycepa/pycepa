@@ -24,7 +24,11 @@ class Tor(Module):
 
         self.guard_node = ['Guard', 'Stable', 'Fast', 'Valid', 'Running']
 
+        self.register('tor_got_md_%s' % self.guard_node, self.got_guard)
         self.trigger('tor_get_router', self.guard_node)
+
+    def got_guard(self, guard_node):
+        log.info('Chosen guard node: %s' % guard_node)
 
 if __name__=='__main__':
     pass
