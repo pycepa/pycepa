@@ -4,27 +4,18 @@ import logging
 log = logging.getLogger(__name__)
 
 class Select(Module):
-    """
-        Events registered:
-            booted - run on boot by start() in daemon.py
-            quit - end the select loop
-
-            fd_readable - register an fd as readable
-            fd_unreadable - un-register fd from read list
-
-            fd_writable - register an fd as writable
-            fd_unwritable - un-register fd from write list
-
-            fd_exceptional - register an fd as exceptional
-            fd_unexceptional - un-register fd from exception list
-
-        Events triggered:
-            fd_%s_readable % object - an fd is readable
-            fd_%s_writable % object - an fd is writable
-            fd_%s_exceptional % object - an fd is exceptional
-    """
-
     def module_load(self):
+        """
+            Events registered:
+                booted                    - run on boot by start() in daemon.py
+                quit                      - end the select loop
+                fd_readable <object>      - register an fd as readable
+                fd_unreadable <object>    - un-register fd from read list
+                fd_writable <object>      - register an fd as writable
+                fd_unwritable <object>    - un-register fd from write list
+                fd_exceptional <object>   - register an fd as exceptional
+                fd_unexceptional <object> - un-register fd from exception list
+        """
         self.running = True
 
         self.register('booted', self.booted)
@@ -40,6 +31,14 @@ class Select(Module):
         self.poll = select.poll()
 
     def booted(self):
+        """
+        Main I/O loop of the application.
+        
+        Events raised:
+            * fd_<object>_readable <object>    - fd is readable.
+            * fd_<object>_writable <object>    - fd is writable.
+            * fd_<object>_exceptional <object> - fd is exceptional.
+        """
         while self.running:
             events = self.poll.poll()
 
@@ -57,9 +56,15 @@ class Select(Module):
                 self.trigger(event_strings[event[1]] % fd, fd)
 
     def quit(self):
+        """
+        Ends the I/O loop.
+        """
         self.running = False
 
     def init_fd(self, fd, event, add=True):
+        """
+        Manages the poll file descriptor events.
+        """
         fno = fd.fileno()
 
         if fno not in self.fds:
@@ -81,19 +86,37 @@ class Select(Module):
             self.poll.register(fno, self.fds[fno]['events'])
 
     def fd_readable(self, fd):
+        """
+        Marks an fd readable.
+        """
         self.init_fd(fd, select.POLLIN)
 
     def fd_unreadable(self, fd):
+        """
+        Marks an fd unreadable.
+        """
         self.init_fd(fd, select.POLLIN, add=False)
 
     def fd_writable(self, fd):
+        """
+        Marks an fd writable.
+        """
         self.init_fd(fd, select.POLLOUT)
 
     def fd_unwritable(self, fd):
+        """
+        Marks an fd unwritable.
+        """
         self.init_fd(fd, select.POLLOUT, add=False)
 
     def fd_exceptional(self, fd):
+        """
+        Marks an fd exceptional.
+        """
         self.init_fd(fd, select.POLLPRI)
 
     def fd_unexceptional(self, fd):
+        """
+        Marks an fd unexceptional.
+        """
         self.init_fd(fd, select.POLLPRI, add=False)

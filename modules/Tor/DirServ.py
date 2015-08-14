@@ -4,6 +4,7 @@ import socket
 import logging
 log = logging.getLogger(__name__)
 
+# default directory authorities
 authorities = [
     {
         "name": "tor26",
@@ -19,9 +20,16 @@ authorities = [
 ]
 
 class DirServ(Module):
+    """
+    Requests network information from directory servers.
+    """
     dependencies = [ 'HTTPClient' ]
 
     def module_load(self):
+        """
+        Events registered:
+            * tor_get_router <flags> - request a router with the given flags.
+        """
         dir_serv = authorities[0]
 
         self.or_port = dir_serv['or_port']
@@ -37,6 +45,9 @@ class DirServ(Module):
         self.register('tor_get_router', self.get_router)
 
     def get_router(self, flags):
+        """
+        Retrieve an OR matching the given flags.
+        """
         self.wanted_routers.append(flags)
 
         if not self.retrieved_consensus:
@@ -50,6 +61,9 @@ class DirServ(Module):
                 break
             
     def check_flags(self, md):
+        """
+        Hunt down an OR with the requested flags.
+        """
         use = True
         found = []
 
@@ -69,6 +83,12 @@ class DirServ(Module):
             self.found(f, md)
 
     def found(self, router, md):
+        """
+        Get more OR information (ntor-onion-key, mainly) for chosen OR.
+
+        Events raised:
+            * tor_got_md_<or_name> <microdescriptor> - got the requested microdescriptor.
+        """
         chunks = [ '' ]
 
         def chunk(c):
@@ -79,13 +99,27 @@ class DirServ(Module):
             log.debug('done')
             self.trigger('tor_got_md_%s' % router, md)
 
-        self.do_http('tor/server/d/%s.z' % (md['descriptor_id'] + '=').decode('base64').encode('hex'), chunk, done)
+        self.do_http('tor/server/d/%s.z' % (
+            md['descriptor_id'] + '=').decode('base64').encode('hex'), chunk, done)
 
     def retrieve_consensus(self):
+        """
+        Retrieve network consensus document.
+        """
         cmd = 'status-vote/current/consensus'
         self.do_http(cmd, self.chunk, self.parse_mds)
 
     def do_http(self, cmd, chunk, done):
+        """
+        Opens an HTTP request over Tor.
+
+        Events raised:
+            * http_get <url> [headers] - opens HTTP request over tor.
+
+        Request local events raised:
+            * chunk <chunk> - chunk received.
+            * done          - the request completed.
+        """
         url = 'http://%s:%d/tor/%s' % (self.ip_address, self.dir_port, cmd)
 
         log.info('requesting %s from %s' % (cmd, self.ip_address))
@@ -95,10 +129,19 @@ class DirServ(Module):
         request.register_local('done', done)
 
     def chunk(self, c):
+        """
+        Received chunk of consensus data.
+        """
         log.debug('received line: ' + c)
         self.consensus += c
 
     def parse_mds(self):
+        """
+        Parse microdescriptors from the consensus.
+
+        Events raised:
+            * tor_parsed_mds - indicates that we've parsed the entire consensus document.
+        """
         log.info('got consensus')
 
         md = None

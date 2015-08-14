@@ -7,9 +7,16 @@ log = logging.getLogger(__name__)
 # 2015-08-04 15:20:44,648:modules.Tor.directory: got microdescriptor: {'descriptor_id': '/wYcvOUPyq/b9CrzyBtgfJbTMbk', 'name': 'ObiOneBackup', 'ip': '149.91.83.223', 'or_port': '9001', 'flags': ['Exit', 'Fast', 'Running', 'V2Dir', 'Valid'], 'dir_port': '9030'}
 
 class Tor(Module):
+    """
+    Base Tor module, mostly here as a boiler plate for now.
+    """
     dependencies = ['HTTPClient']
 
     def module_load(self):
+        """
+        Events raised:
+            * tor_get_router <flags> - get a router with the given flags.
+        """
         log.info('initializing Tor.')
 
         modules.load_module('Tor.Proxy')
