@@ -14,6 +14,9 @@ from core.module_driver import modules
 pid_file = 'data/pid'
 
 def check_pid(pid):
+    """
+    Uses os.kill to determine if a process is still running.
+    """
     try:
         os.kill(pid, 0)
     except OSError:
@@ -21,9 +24,15 @@ def check_pid(pid):
     return True
 
 def read_pid():
+    """
+    Reads a pid from the pid file.
+    """
     return int(open(pid_file).read().rstrip())
 
 def write_pid():
+    """
+    Writes a pid to a file.
+    """
     try:
         dirs = os.path.split(pid_file)[0]
         os.makedirs(dirs)
@@ -33,8 +42,16 @@ def write_pid():
     open(pid_file, 'w').write(str(os.getpid()))
 
 def start(daemon=True):
+    """
+    Start the server, if daemon is true it will background it.
+
+    Events raised:
+        * booted - indicates that modules have been initalized and
+                   the main event loop can begin.
+    """
     log.info('starting server..')
 
+    # Check if the daemon is already running.
     try:
         if check_pid(read_pid()):
             log.critical('process already started!')
@@ -42,6 +59,7 @@ def start(daemon=True):
     except:
         pass
 
+    # Load all modules.
     try:
         modules.load_all()
     except Exception as e:
@@ -51,6 +69,7 @@ def start(daemon=True):
 
     log.info('server successfully started.')
 
+    # Daemonize, if necessary.
     if daemon:
         if os.fork(): quit()
         if os.fork(): quit()
@@ -66,6 +85,9 @@ def start(daemon=True):
     events.trigger('booted')
 
 def stop():
+    """
+    Stops the daemon.
+    """
     log.info('stopping server.')
 
     try:
@@ -83,12 +105,18 @@ def stop():
     os.remove(pid_file)
 
 def restart():
+    """
+    Restarts the daemon.
+    """
     log.info('restarting server.')
 
     stop()
     start()
 
 def reload():
+    """
+    Sends a SIGHUP to the running daemon to tell it to reload all modules.
+    """
     log.info('reloading server.')
 
     try:

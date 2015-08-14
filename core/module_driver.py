@@ -4,14 +4,23 @@ import importlib
 from core.events import events
 
 class Modules(object):
+    """
+    Loads and manages modules.
+    """
     def __init__(self):
         self.modules = {}
         self.module_dir = 'modules'
 
     def loaded(self, module):
+        """
+        Check to see if a module is already loaded.
+        """
         return module in self.modules
 
     def load_all(self):
+        """
+        Load all modules in the modules directory.
+        """
         for module_name in os.listdir(self.module_dir):
             if not module_name.endswith('.py') and not \
               os.path.isdir(os.path.join(self.module_dir, module_name)):
@@ -26,10 +35,16 @@ class Modules(object):
             self.load_module(module_name)
 
     def unload_all(self):
+        """
+        Unload all modules.
+        """
         for module_name in self.modules.keys():
             self.unload_module(module_name)
 
     def load_module(self, module_name):
+        """
+        Load a module.
+        """
         if module_name in self.modules:
             self.unload_module(module_name)
 
@@ -39,6 +54,12 @@ class Modules(object):
         self.modules[module_name].init_module()
 
     def unload_module(self, module_name):
+        """
+        Unload a module.
+
+        Events raised:
+            * module_unloaded_<name> <name> - indicates that a module has been unloaded.
+        """
         if module_name not in self.modules:
             return
 

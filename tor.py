@@ -14,4 +14,5 @@ if __name__ == '__main__':
        print('Usage: %s [%s]' % (sys.argv[0], '|'.join(actions)))
        quit()
 
+    # Pass the command to the daemonizer.
     getattr(daemon, sys.argv[1])(daemon=False)
