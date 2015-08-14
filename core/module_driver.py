@@ -8,6 +8,7 @@ class Modules(object):
     Loads and manages modules.
     """
     def __init__(self):
+        self.pending_modules = {}
         self.modules = {}
         self.module_dir = 'modules'
 
@@ -50,8 +51,9 @@ class Modules(object):
 
         module = importlib.import_module('%s.%s' % (self.module_dir, module_name))
 
-        self.modules[module_name] = getattr(module, module_name.split('.')[-1])()
-        self.modules[module_name].init_module()
+        self.pending_modules[module_name] = getattr(module, module_name.split('.')[-1])()
+        self.pending_modules[module_name].init_module()
+        events.register_once('module_loaded_%s' % module_name, self.module_loaded)
 
     def unload_module(self, module_name):
         """
@@ -67,5 +69,12 @@ class Modules(object):
         del sys.modules['%s.%s' % (self.module_dir, module_name)]
         del self.modules[module_name]
         events.trigger('module_unloaded_%s' % module_name, module_name)
+
+    def module_loaded(self, module_name):
+        if module_name not in self.pending_modules:
+            return
+
+        self.modules[module_name] = self.pending_modules[module_name]
+        del self.pending_modules[module_name]
 
 modules = Modules()
