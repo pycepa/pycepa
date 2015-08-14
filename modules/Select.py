@@ -53,7 +53,11 @@ class Select(Module):
 
             for event in events:
                 fd = self.fds[event[0]]['fd']
-                self.trigger(event_strings[event[1]] % fd, fd)
+                for e in event_strings:
+                    if not e & event[1]:
+                        continue
+
+                    self.trigger(event_strings[e] % fd, fd)
 
     def quit(self):
         """

@@ -93,7 +93,6 @@ class DirServ(Module):
 
         def chunk(c):
             chunks[0] += c
-            log.debug(c)
 
         def done():
             log.debug('done')
@@ -132,7 +131,6 @@ class DirServ(Module):
         """
         Received chunk of consensus data.
         """
-        log.debug('received line: ' + c)
         self.consensus += c
 
     def parse_mds(self):

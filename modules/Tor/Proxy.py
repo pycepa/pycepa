@@ -37,42 +37,15 @@ class TorStream(LocalModule):
         self.circuit.register_local('%d_%d_init_directory_stream' % 
             (self.circuit.circuit_id, self.stream_id), self.directory_stream)
 
-    def gen_cell(self, command, data=None, digest=None):
-        """
-        Generate a relay cell with the given command. If the command is a string, it will
-        be converted to the command id.
-        """
-        c = cell.Relay(self.circuit.circuit_id)
-
-        if isinstance(command, str):
-            command = cell.relay_name_to_command(command)
-
-        c.init_relay({
-            'command': command,
-            'stream_id': self.stream_id,
-            'digest': digest or '\x00' * 4,
-            'data': data
-        })
-        return c
-
-    def send_cell(self, c):
-        """
-        Encrypts and sends a relay cell.
-
-        Circuit local events raised:
-            * send_cell <cell> - sends a cell.
-        """
-        self.circuit.send_digest.update(c.get_str())
-        c.data['digest'] = self.circuit.send_digest.digest()[:4]
-        c.data = self.circuit.encrypt(c.get_str())
-        self.circuit.trigger_local('send_cell', c)
+        self.counter = 0
 
     def connect(self, addr, port):
         """
         Iniatializes a remote TCP connection.
         """
         data = '%s:%d\0%s' % (addr, port, struct.pack('>I', 0))
-        self.send_cell(self.gen_cell('RELAY_BEGIN', data))
+        self.circuit.trigger_local('%d_send_relay_cell' % self.circuit.circuit_id,
+            'RELAY_BEGIN', self.stream_id, data)
 
     def got_relay(self, circuit_id, stream_id, _cell):
         """
@@ -100,14 +73,30 @@ class TorStream(LocalModule):
             self.closed = True
             self.trigger('tor_directory_stream_%s_closed' % self.stream_id)
         elif command == 'RELAY_DATA':
+            self.counter += 1
+            if self.counter == 50:
+                self.counter = 0
+                self.circuit.trigger_local('%d_send_relay_cell' %
+                    self.circuit.circuit_id, 'RELAY_SENDME', stream_id=self.stream_id)
+
             self.trigger('tor_directory_stream_%s_recv' % self.stream_id,
                 _cell.data['data'])
 
     def send(self, data):
-        self.send_cell(self.gen_cell('RELAY_DATA', data))
+        """
+        Send data down a stream, breaks into PAYLOAD_LEN - 11 byte chunks.
+        """
+        while data:
+            self.circuit.trigger_local('%d_send_relay_cell' % self.circuit.circuit_id,
+                'RELAY_DATA', self.stream_id, data[:509-11])
+            data = data[509-11:]
 
     def directory_stream(self, circuit_id, stream_id):
-        self.send_cell(self.gen_cell('RELAY_BEGIN_DIR'))
+        """
+        Sends a RELAY_BEGIN_DIR cell.
+        """
+        self.circuit.trigger_local('%d_send_relay_cell' % circuit_id,
+            'RELAY_BEGIN_DIR', self.stream_id)
 
 class Circuit(LocalModule):
     """
@@ -137,6 +126,8 @@ class Circuit(LocalModule):
         # Create our CreateFast cell. Initializes the key material that we will be using.
         c = cell.CreateFast(circuit_id=self.circuit_id)
         self.Y = c.key_material
+
+        self.counter = 0
 
         self.trigger_local('send_cell', c)
 
@@ -206,6 +197,7 @@ class Circuit(LocalModule):
             * <circuit_id>_init_directory_stream <stream_id> - create a new directory stream
                                                                on this circuit with the 
                                                                given stream id.
+            * <circuit_id>_send_relay_cell <cell>            - send a relay cell upstream.
 
         Local events raised:
             * <circuit_id>_circuit_initialized <circuit_id> 
@@ -220,14 +212,47 @@ class Circuit(LocalModule):
             log.info('established circuit id %d.' % self.circuit_id)
             self.register_local('%d_init_directory_stream' % self.circuit_id, 
                 self.init_directory_stream)
+            self.register_local('%d_send_relay_cell' % self.circuit_id, self.send_relay_cell)
             self.trigger_local('%d_circuit_initialized' % self.circuit_id, self.circuit_id)
         elif isinstance(c, cell.Relay):
             c.data = self.decrypt(c.data)
             c.parse()
 
+            if c.data['command_text'] == 'RELAY_DATA':
+                self.counter += 1
+                if self.counter == 100:
+                    self.counter = 0
+                    self.trigger_local('%d_send_relay_cell' % self.circuit_id,
+                        'RELAY_SENDME')
+
             if c.data['stream_id'] in self.streams:
                 self.trigger_local('%d_%d_got_relay' % (self.circuit_id,
                     c.data['stream_id']), self.circuit_id, c.data['stream_id'], c)
+
+    def send_relay_cell(self, command, stream_id=None, data=None):
+        """
+        Generate, encrypt, and send a relay cell with the given command. If the
+        command is a string, it will be converted to the command id.
+
+        Circuit local events raised:
+            * send_cell <cell> [stream_id] [data] - sends a cell.
+        """
+        c = cell.Relay(self.circuit_id)
+
+        if isinstance(command, str):
+            command = cell.relay_name_to_command(command)
+
+        c.init_relay({
+            'command': command,
+            'stream_id': stream_id or 0,
+            'digest': '\x00' * 4,
+            'data': data
+        })
+
+        self.send_digest.update(c.get_str())
+        c.data['digest'] = self.send_digest.digest()[:4]
+        c.data = self.encrypt(c.get_str())
+        self.trigger_local('send_cell', c)
 
 class TorConnection(TLSClient):
     """

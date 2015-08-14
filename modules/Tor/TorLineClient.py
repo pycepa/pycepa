@@ -15,8 +15,21 @@ class TorLineClient(TorSocket):
         super(TorLineClient, self).__init__(host, port)
 
         self.register_local('received', self.parse_line)
+        self.register_local('closed', self._closed)
         self.data = ''
         self.chunked = False
+
+    def _closed(self):
+        """
+        Forwards the closed event to line_closed if we don't have anything more
+        to read.
+
+        Local events raised:
+            * line_closed - indicates that the socket is closed and we have read all
+                            data
+        """
+        if not self.data or self.chunked:
+            self.trigger_local('line_closed')
 
     def parse_line(self, data):
         """
