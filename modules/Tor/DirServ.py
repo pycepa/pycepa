@@ -98,8 +98,8 @@ class DirServ(Module):
             log.debug('data: ' + chunks[0])
             self.trigger('tor_got_md_%s' % router, md)
 
-        self.do_http('server/d/%s.z' % (
-            md['descriptor_id'] + '=').decode('base64').encode('hex'), chunk, done)
+        self.do_http('server/d/%s' % (
+            md['digest'] + '=').decode('base64').encode('hex'), chunk, done)
 
     def retrieve_consensus(self):
         """
@@ -150,9 +150,12 @@ class DirServ(Module):
             if len(line) < 2:
                 continue
             elif line[0] == 'r' and len(line) == 9:
+                print line
                 md = {
                     'name': line[1],
-                    'descriptor_id': line[2],
+                    'identity': line[2],
+                    'digest': line[3],
+                    'publication': line[4:6],
                     'ip': line[6],
                     'or_port': int(line[7]),
                     'dir_port': int(line[8])
