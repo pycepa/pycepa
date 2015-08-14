@@ -68,7 +68,12 @@ class TLSClient(TCPClient):
         self.trigger('fd_unwritable', self.sock)
         self.trigger('fd_unexceptional', self.sock)
 
-        self.sock = ssl.wrap_socket(self.sock, ssl_version=ssl.PROTOCOL_TLSv1_2,
+        if hasattr(ssl, 'PROTOCOL_TLSv1_2'):
+            tls_version = ssl.PROTOCOL_TLSv1_2
+        else:
+            tls_version = ssl.PROTOCOL_TLSv1
+
+        self.sock = ssl.wrap_socket(self.sock, ssl_version=tls_version,
             do_handshake_on_connect=False)
 
         self.register('fd_%s_readable' % self.sock, self.readable)
