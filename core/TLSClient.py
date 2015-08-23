@@ -13,11 +13,12 @@ class TLSClient(TCPClient):
     def __init__(self, host, port):
         """
         Local events registered:
-            * init - raised when the socket is initialised.
+            * setup - raised when the socket is about to connect.
             * connected - raised when the socket is connected.
         """
         super(TLSClient, self).__init__(host, port)
-        self.register_local('init', self.do_ssl)
+        self.context = None
+        self.register_local('setup', self.do_ssl)
         self.register_local('connected', self.do_handshake)
 
     def readable(self, client):
@@ -46,41 +47,15 @@ class TLSClient(TCPClient):
 
     def do_ssl(self):
         """
-        Initializes the TLS socket.
-        
-        Events raised:
-            * fd_unreadable <sock>    - indicates that we don't want to read from this
-                                        socket.
-            * fd_unwritable <sock>    - indicates that we don't want to write to this
-                                        socket.
-            * fd_unexceptional <sock> - indicates that we don't want to listen for
-                                        exceptional socket events. 
-            * fd_writable <sock>      - indicates that we want to write to the socket.
-
-        Events registered:
-            * fd_<sock>_readable <sock>    - raised when the socket is readable.
-            * fd_<sock>_writable <sock>    - raised when the socket is writable.
-            * fd_<sock>_exceptional <sock> - raised when the socket is exceptional.
+        Setup the TLS socket context and wraps the socket.
         """
+        _ssl = ssl
+        if self.context:
+            _ssl = self.context
+
+        log.debug('Using SSL context: %s' % _ssl)
+        self.sock = _ssl.wrap_socket(self.sock, do_handshake_on_connect=False)
         self.handshook = False
-
-        self.trigger('fd_unreadable', self.sock)
-        self.trigger('fd_unwritable', self.sock)
-        self.trigger('fd_unexceptional', self.sock)
-
-        if hasattr(ssl, 'PROTOCOL_TLSv1_2'):
-            tls_version = ssl.PROTOCOL_TLSv1_2
-        else:
-            tls_version = ssl.PROTOCOL_TLSv1
-
-        self.sock = ssl.wrap_socket(self.sock, ssl_version=tls_version,
-            do_handshake_on_connect=False)
-
-        self.register('fd_%s_readable' % self.sock, self.readable)
-        self.register('fd_%s_writable' % self.sock, self.writable)
-        self.register('fd_%s_exceptional' % self.sock, self.exceptional)
-
-        self.trigger('fd_writable', self.sock)
 
     def do_handshake(self):
         """

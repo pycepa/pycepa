@@ -101,6 +101,8 @@ class TCPClient(LocalModule):
                                       exceptional.
 
         Local events raised:
+            * setup - indicates that the socket is about to connect and any setup should
+                      be done here.
             * init - indicates that we've just initialized the socket.
 
         Events registered:
@@ -114,6 +116,8 @@ class TCPClient(LocalModule):
 
         self.sock = socket.socket()
         self.sock.setblocking(False)
+
+        self.trigger_local('setup')
 
         try:
             self.sock.connect((self.host, self.port))
