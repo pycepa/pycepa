@@ -364,8 +364,11 @@ class TorConnection(TLSClient):
         Initialize a circuit.
         """
         circuit = Circuit(self)
-        self.circuits.append(circuit.circuit_id)
+        self.register_local('%_circuit_initialized', self.circuit_initialized)
         return circuit.circuit_id
+
+    def circuit_initialized(self, circuit_id):
+        self.circuits.append(circuit_id)
 
     def got_versions(self, circuit_id, versions):
         """
@@ -446,6 +449,7 @@ class Proxy(Module):
             * tor_init_directory_stream <stream_id> - create a directory stream
         """
         self.register('tor_init_directory_stream', self.init_directory_stream)
+        self.connections_pending = []
         self.connections = []
         self.streams = []
 
@@ -461,13 +465,15 @@ class Proxy(Module):
                                                                stream, will create
                                                                circuits as necessary.
         """
-        if not self.connections:
-            self.streams.append(stream_id)
-            self.connections.append(TorConnection(authorities[0]))
+        self.streams.append(stream_id)
+
+        if not self.connections and not self.connections_pending:
             self.register('tor_%s_proxy_initialized' % authorities[0]['name'],
                 self.proxy_initialized)
-        else:
-            self.trigger('tor_%s_init_directory_stream' % authorities[0]['name'], stream_id)
+            self.connections_pending.append(TorConnection(authorities[0]))
+        elif self.connections:
+            self.trigger('tor_%s_init_directory_stream' % self.connections[0].name,
+                stream_id)
 
     def proxy_initialized(self, name):
         """
@@ -478,7 +484,20 @@ class Proxy(Module):
                                                                 stream, will create
                                                                 circuits as necessary.
         """
+        conn = None
+        for c in self.connections_pending:
+            if name != c.name:
+                continue
+
+            conn = c
+
+        if not conn:
+            log.error('something went terribly wrong here...')
+            return
+
+        self.connections_pending.remove(conn)
+        self.connections.append(conn)
+
         for stream in self.streams:
-            self.trigger('tor_%s_init_directory_stream' % authorities[0]['name'],
-                stream)
+            self.trigger('tor_%s_init_directory_stream' % conn.name, stream)
         self.streams = []
