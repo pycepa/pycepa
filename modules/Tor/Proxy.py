@@ -6,10 +6,15 @@ from modules.Tor.DirServ import authorities
 from modules.Tor.cell import cell
 from modules.Tor.cell import parser as cell_parser
 from hashlib import sha1
+from hashlib import sha256
+import hmac
 import ssl
 import random
 import struct
 import logging
+import curve25519
+import hkdf
+
 log = logging.getLogger(__name__)
 
 class TorStream(LocalModule):
@@ -114,42 +119,27 @@ class Circuit(LocalModule):
         """
         super(Circuit, self).__init__()
         self._events = proxy._events
+        self.node = proxy.node
+        self.node_id = (self.node['identity'] + '=').decode('base64')
+        self.counter = 0
 
         self.circuit_id = circuit_id or random.randint(1<<31, 1<<32)
 
         self.established = False
         self.streams     = {}
 
-        self.register_local('%d_got_cell_CreatedFast' % self.circuit_id, self.recv_cell)
+        self.register_local('%d_got_cell_Created2' % self.circuit_id, self.crypt_init_ntor)
+        self.register_local('%d_got_cell_CreatedFast' % self.circuit_id, self.crypt_init_tap)
         self.register_local('%d_got_cell_Relay' % self.circuit_id, self.recv_cell)
+        self.register_local('%d_do_ntor_handshake' % self.circuit_id, self.do_ntor)
+        self.register_local('%d_do_tap_handshake' % self.circuit_id, self.do_tap)
 
         log.info('initializing circuit id %d' % self.circuit_id)
-        # Create our CreateFast cell. Initializes the key material that we will be using.
-        c = cell.CreateFast(circuit_id=self.circuit_id)
-        self.Y = c.key_material
 
-        self.counter = 0
-
-        self.trigger_local('send_cell', c)
-
-    def crypt_init(self):
+    def aes_init(self, Df, Db, Kf, Kb):
         """
-        Initializes the AES encryption / decryption using the TAP handshake (tor-spec.txt,
-        section 5.1.3).
+        Initializes the AES encryption / decryption objects.
         """
-        k0 = self.Y + self.X
-
-        K, i = '', 0
-        while len(K) < 2*16 + 3*20:
-            K += sha1(k0 + chr(i)).digest()
-            i += 1
-
-        KH = K[:20]
-        DF = K[20:40]
-        DB = K[40:60]
-        KF = K[60:76]
-        KB = K[76:92]
-
         self.Kfctr = 0
         def fctr():
             self.Kfctr += 1
@@ -160,11 +150,101 @@ class Circuit(LocalModule):
             self.Kbctr += 1
             return ('%032x' % (self.Kbctr - 1)).decode('hex')
 
-        self.send_digest = sha1(DF)
-        self.recv_digest = sha1(DB)
+        self.send_digest = sha1(Df)
+        self.recv_digest = sha1(Db)
 
-        self.encrypt = AES.new(KF, AES.MODE_CTR, counter=fctr).encrypt
-        self.decrypt = AES.new(KB, AES.MODE_CTR, counter=bctr).decrypt
+        self.encrypt = AES.new(Kf, AES.MODE_CTR, counter=fctr).encrypt
+        self.decrypt = AES.new(Kb, AES.MODE_CTR, counter=bctr).decrypt
+
+    def do_tap(self):
+        """
+        Create our CreateFast cell. Initializes the key material that we will be using.
+
+        Local events raised:
+            * send_cell <cell> [data] - sends a cell.
+        """
+        c = cell.CreateFast(self.circuit_id)
+        self.Y = c.key_material
+        self.trigger_local('send_cell', c)
+
+    def do_ntor(self):
+        """
+        Initializes the ntor handshake.
+
+        Local events raised:
+            * send_cell <cell> [data] - sends a cell.
+        """
+        self.x = curve25519.Private()
+        self.X = self.x.get_public()
+        self.B = curve25519.Public(self.node['ntor-onion-key'].decode('base64'))
+
+        handshake  = self.node_id
+        handshake += self.B.public
+        handshake += self.X.public
+        self.trigger_local('send_cell', cell.Create2(self.circuit_id), handshake)
+
+    def crypt_init_tap(self, circuit_id, c):
+        """
+        Finish the TAP handshake after receiving CreatedFast (tor-spec.txt,
+        section 5.1.3).
+        """
+        self.X = c.key_material
+        k0 = self.Y + self.X
+
+        K, i = '', 0
+        while len(K) < 2*16 + 3*20:
+            K += sha1(k0 + chr(i)).digest()
+            i += 1
+
+        Kh = K[:20]
+        Df = K[20:40]
+        Db = K[40:60]
+        Kf = K[60:76]
+        Kb = K[76:92]
+
+        self.aes_init(Df, Db, Kf, Kb)
+        self.circuit_initialized()
+
+    def crypt_init_ntor(self, circuit_id, c):
+        """
+        Finish the ntor handshake once we receive the Created2
+        """
+        self.Y = curve25519.Public(c.Y)
+        self.auth = c.auth
+
+        def hash_func(shared):
+            return shared
+
+        si  = self.x.get_shared_key(self.Y, hash_func)
+        si += self.x.get_shared_key(self.B, hash_func)
+        si += self.node_id
+        si += self.B.public
+        si += self.X.public
+        si += self.Y.public
+        si += 'ntor-curve25519-sha256-1'
+
+        key_seed = hmac.new('ntor-curve25519-sha256-1:key_extract', si, sha256).digest()
+        verify = hmac.new('ntor-curve25519-sha256-1:verify', si, sha256).digest()
+
+        ai  = verify
+        ai += self.node_id
+        ai += self.B.public
+        ai += self.Y.public
+        ai += self.X.public
+        ai += 'ntor-curve25519-sha256-1'
+        ai += 'Server'
+        
+        auth = hmac.new('ntor-curve25519-sha256-1:mac', ai, sha256).digest()
+        if self.auth != auth:
+            log.error('bad ntor handshake.') 
+            self.trigger_local('die')
+            return
+
+        keys = hkdf.hkdf_expand(key_seed, 'ntor-curve25519-sha256-1:key_expand', 72, sha256)
+        Df, Db, Kf, Kb = struct.unpack('>20s20s16s16s', keys)
+
+        self.aes_init(Df, Db, Kf, Kb)
+        self.circuit_initialized()
 
     def connect(self, stream_id):
         """
@@ -205,17 +285,9 @@ class Circuit(LocalModule):
                 - indicates that the circuit is ready to use.
             * <circuit_id>_<stream_id>_got_relay <circuit_id> <stream_id> <cell>
                 - cell received on this circuit for the given stream.
+
         """
-        if isinstance(c, cell.CreatedFast):
-            self.X = c.key_material
-            self.crypt_init()
-            self.established = True
-            log.info('established circuit id %d.' % self.circuit_id)
-            self.register_local('%d_init_directory_stream' % self.circuit_id, 
-                self.init_directory_stream)
-            self.register_local('%d_send_relay_cell' % self.circuit_id, self.send_relay_cell)
-            self.trigger_local('%d_circuit_initialized' % self.circuit_id, self.circuit_id)
-        elif isinstance(c, cell.Relay):
+        if isinstance(c, cell.Relay):
             c.data = self.decrypt(c.data)
             c.parse()
 
@@ -254,6 +326,27 @@ class Circuit(LocalModule):
         c.data['digest'] = self.send_digest.digest()[:4]
         c.data = self.encrypt(c.get_str())
         self.trigger_local('send_cell', c)
+
+    def circuit_initialized(self):
+        """
+        Called after negotiating the key exchange to initialize the circuit.
+
+        Local events registered:
+            * <circuit_id>_init_directory_stream <stream_id> - create a new directory stream
+                                                               on this circuit with the 
+                                                               given stream id.
+            * <circuit_id>_send_relay_cell <cell>            - send a relay cell upstream.
+
+        Local events raised:
+            * <circuit_id>_circuit_initialized <circuit_id> 
+                - indicates that the circuit is ready to use.
+        """
+        self.established = True
+        log.info('established circuit id %d.' % self.circuit_id)
+        self.register_local('%d_init_directory_stream' % self.circuit_id, 
+            self.init_directory_stream)
+        self.register_local('%d_send_relay_cell' % self.circuit_id, self.send_relay_cell)
+        self.trigger_local('%d_circuit_initialized' % self.circuit_id, self.circuit_id)
 
 class TorConnection(TLSClient):
     """
@@ -364,7 +457,9 @@ class TorConnection(TLSClient):
         Initialize a circuit.
         """
         circuit = Circuit(self)
-        self.register_local('%_circuit_initialized', self.circuit_initialized)
+        self.register_local('%d_circuit_initialized' % circuit.circuit_id,
+            self.circuit_initialized)
+        self.trigger_local('%d_do_ntor_handshake' % circuit.circuit_id)
         return circuit.circuit_id
 
     def circuit_initialized(self, circuit_id):

@@ -1,1 +1,3 @@
 pyOpenSSL
+curve25519-donna
+python-hkdf

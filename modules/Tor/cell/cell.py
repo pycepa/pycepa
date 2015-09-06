@@ -187,10 +187,7 @@ class CreatedFast(FixedCell):
         Unpack the key material.
         """
         super(CreatedFast, self).unpack(data)
-        keys = struct.unpack('>20s20s', self.data[:40])
-
-        self.key_material   = keys[0]
-        self.derivative_key = keys[1]
+        self.key_material, self.derivative_key = struct.unpack('>20s20s', self.data[:40])
 
 class Versions(VariableCell):
     """
@@ -286,7 +283,7 @@ class Create2(FixedCell):
     cell_type = 10
 
     def pack(self, data):
-        htype = 0x2
+        data = struct.pack('>HH', 0x2, len(data)) + data
         return super(Create2, self).pack(data)
 
 class Created2(FixedCell):
@@ -294,6 +291,10 @@ class Created2(FixedCell):
     Created2 cell.
     """
     cell_type = 11
+
+    def unpack(self, data):
+        super(Created2, self).unpack(data)
+        length, self.Y, self.auth = struct.unpack('>H32s32s', data[:66])
 
 class Certs(VariableCell):
     """
@@ -379,6 +380,8 @@ cell_types = {
     6: CreatedFast,
     7: Versions,
     8: Netinfo,
+    10: Create2,
+    11: Created2,
     129: Certs,
     130: AuthChallenge
 }

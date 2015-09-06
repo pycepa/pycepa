@@ -11,7 +11,8 @@ authorities = [
         "or_port": 443,
         "ip": "86.59.21.38",
         "dir_port": 80,
-        "ntor-onion-key": "c2h52ffxTBhH+50DjL74NkhPdN4a+dWSA2P0AWsJo18="
+        "ntor-onion-key": "c2h52ffxTBhH+50DjL74NkhPdN4a+dWSA2P0AWsJo18=",
+        "identity": "hHsfhQNE14dkkaVIkvkEk05OuF0"
     },
     {
         "or_port": 443,
