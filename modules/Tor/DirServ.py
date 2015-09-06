@@ -10,7 +10,8 @@ authorities = [
         "name": "tor26",
         "or_port": 443,
         "ip": "86.59.21.38",
-        "dir_port": 80
+        "dir_port": 80,
+        "ntor-onion-key": "c2h52ffxTBhH+50DjL74NkhPdN4a+dWSA2P0AWsJo18="
     },
     {
         "or_port": 443,
@@ -44,11 +45,15 @@ class DirServ(Module):
         self.consensus_buffer = ''
         self.server_buffer = ''
 
+        self.mds_completed = False
+        self.servers_completed = False
+
+        self.routers = {}
         self.wanted_routers = []
 
         self.register('tor_get_router', self.get_router)
         self.register('tor_parsed_router', self.parsed_router)
-        self.register('tor_parsed_md', self.check_flags)
+        self.register('tor_parsed_md', self.parsed_md)
 
     def get_router(self, flags):
         """
@@ -66,7 +71,21 @@ class DirServ(Module):
                 if not self.check_flags(md):
                     continue
                 break
-            
+
+    def parsed_md(self, md):
+        log.debug('parsed microdescriptor: %s' % md)
+
+        try:
+            fp = (md['digest'] + '=').decode('base64').encode('hex')
+        except binascii.Error:
+            return
+
+        if fp not in self.routers:
+            self.routers[fp] = {}
+
+        for key in md:
+            self.routers[fp][key] = md[key]
+
     def check_flags(self, md):
         """
         Hunt down an OR with the requested flags.
@@ -170,7 +189,9 @@ class DirServ(Module):
         if hasattr(self, 'md'):
             self.trigger('tor_parsed_md', self.md)
 
-        self.trigger('tor_parsed_mds')
+        self.mds_completed = True
+        if self.servers_completed:
+            self.trigger('tor_got_consensus')
 
     def server_chunk(self, c):
         """
@@ -210,7 +231,7 @@ class DirServ(Module):
             return
 
         if line[0] == 'fingerprint' and len(line) == 11:
-            self.router['fingerprint'] = line[1:]
+            self.router['fingerprint'] = ''.join(line[1:]).lower()
         elif line[0] in [ 'onion-key', 'signing-key', 'router-signature',
             'dir-identity-key', 'dir-signing-key' ]:
             self.reading_key = line[0]
@@ -247,7 +268,18 @@ class DirServ(Module):
         """
         if hasattr(self, 'router'):
             self.trigger('tor_parsed_router', self.router)
-        self.trigger('tor_parsed_routers')
+
+        self.servers_completed = True
+        if self.mds_completed:
+            self.trigger('tor_got_consensus')
 
     def parsed_router(self, router):
         log.debug('Parsed router: %s' % router)
+        if 'fingerprint' not in router:
+            return
+
+        if router['fingerprint'] not in self.routers:
+            self.routers[router['fingerprint']] = {}
+
+        for key in router:
+            self.routers[router['fingerprint']][key] = router[key]
