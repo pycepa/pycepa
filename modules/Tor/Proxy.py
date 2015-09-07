@@ -1,21 +1,40 @@
 from core.TLSClient import TLSClient
 from core.Module import Module
 from core.LocalModule import LocalModule
-from Crypto.Cipher import AES
 from modules.Tor.DirServ import authorities
 from modules.Tor.cell import cell
 from modules.Tor.cell import parser as cell_parser
-from hashlib import sha1
-from hashlib import sha256
-import hmac
+
+from cryptography.hazmat.primitives.ciphers import Cipher
+from cryptography.hazmat.primitives.ciphers.modes import CTR
+from cryptography.hazmat.primitives.ciphers.algorithms import AES
+from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
+from cryptography.hazmat.primitives.hashes import SHA256, SHA1, Hash
+from cryptography.hazmat.primitives.hmac import HMAC
+from cryptography.hazmat.backends import default_backend
+import curve25519
+
 import ssl
 import random
 import struct
 import logging
-import curve25519
-import hkdf
 
 log = logging.getLogger(__name__)
+bend = default_backend()
+
+def hmac(key, msg):
+    hmac = HMAC(key, algorithm=SHA256(), backend=bend)
+    hmac.update(msg)
+    return hmac.finalize()
+
+def hkdf(key, length=16, info=''):
+    hkdf = HKDFExpand(algorithm=SHA256(), length=length, info=info, backend=bend)
+    return hkdf.derive(key)
+
+def sha1(msg):
+    sha = Hash(SHA1(), backend=bend)
+    sha.update(msg)
+    return sha.finalize()
 
 class TorStream(LocalModule):
     """
@@ -140,21 +159,13 @@ class Circuit(LocalModule):
         """
         Initializes the AES encryption / decryption objects.
         """
-        self.Kfctr = 0
-        def fctr():
-            self.Kfctr += 1
-            return ('%032x' % (self.Kfctr - 1)).decode('hex')
+        self.send_digest = Hash(SHA1(), backend=bend)
+        self.send_digest.update(Df)
+        self.recv_digest = Hash(SHA1(), backend=bend)
+        self.recv_digest.update(Db)
 
-        self.Kbctr = 0
-        def bctr():
-            self.Kbctr += 1
-            return ('%032x' % (self.Kbctr - 1)).decode('hex')
-
-        self.send_digest = sha1(Df)
-        self.recv_digest = sha1(Db)
-
-        self.encrypt = AES.new(Kf, AES.MODE_CTR, counter=fctr).encrypt
-        self.decrypt = AES.new(Kb, AES.MODE_CTR, counter=bctr).decrypt
+        self.encrypt = Cipher(AES(Kf), CTR('\x00' * 16), backend=bend).encryptor()
+        self.decrypt = Cipher(AES(Kb), CTR('\x00' * 16), backend=bend).decryptor()
 
     def do_tap(self):
         """
@@ -193,7 +204,7 @@ class Circuit(LocalModule):
 
         K, i = '', 0
         while len(K) < 2*16 + 3*20:
-            K += sha1(k0 + chr(i)).digest()
+            K += sha1(k0 + chr(i))
             i += 1
 
         Kh = K[:20]
@@ -223,8 +234,8 @@ class Circuit(LocalModule):
         si += self.Y.public
         si += 'ntor-curve25519-sha256-1'
 
-        key_seed = hmac.new('ntor-curve25519-sha256-1:key_extract', si, sha256).digest()
-        verify = hmac.new('ntor-curve25519-sha256-1:verify', si, sha256).digest()
+        key_seed = hmac('ntor-curve25519-sha256-1:key_extract', si)
+        verify = hmac('ntor-curve25519-sha256-1:verify', si)
 
         ai  = verify
         ai += self.node_id
@@ -234,13 +245,13 @@ class Circuit(LocalModule):
         ai += 'ntor-curve25519-sha256-1'
         ai += 'Server'
         
-        auth = hmac.new('ntor-curve25519-sha256-1:mac', ai, sha256).digest()
+        auth = hmac('ntor-curve25519-sha256-1:mac', ai)
         if self.auth != auth:
             log.error('bad ntor handshake.') 
             self.trigger_local('die')
             return
 
-        keys = hkdf.hkdf_expand(key_seed, 'ntor-curve25519-sha256-1:key_expand', 72, sha256)
+        keys = hkdf(key_seed, length=72, info='ntor-curve25519-sha256-1:key_expand')
         Df, Db, Kf, Kb = struct.unpack('>20s20s16s16s', keys)
 
         self.aes_init(Df, Db, Kf, Kb)
@@ -288,7 +299,7 @@ class Circuit(LocalModule):
 
         """
         if isinstance(c, cell.Relay):
-            c.data = self.decrypt(c.data)
+            c.data = self.decrypt.update(c.data)
             c.parse()
 
             if c.data['command_text'] == 'RELAY_DATA':
@@ -323,8 +334,10 @@ class Circuit(LocalModule):
         })
 
         self.send_digest.update(c.get_str())
-        c.data['digest'] = self.send_digest.digest()[:4]
-        c.data = self.encrypt(c.get_str())
+        digest = self.send_digest.copy()
+        c.data['digest'] = digest.finalize()[:4]
+
+        c.data = self.encrypt.update(c.get_str())
         self.trigger_local('send_cell', c)
 
     def circuit_initialized(self):
