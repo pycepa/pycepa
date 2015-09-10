@@ -1,3 +1,2 @@
-pyOpenSSL
 curve25519-donna
 cryptography

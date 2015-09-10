@@ -1,4 +1,5 @@
-from OpenSSL import crypto
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from time import time
 from datetime import datetime
 import struct
@@ -331,8 +332,10 @@ class Certs(VariableCell):
                 raise CellError('Duplicate or invalid certificate received.')
 
             # load the certificate and check expiration.
-            cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert)
-            if cert.has_expired():
+            # cert = crypto.load_certificate(crypto.FILETYPE_ASN1, cert)
+            cert = x509.load_der_x509_certificate(cert, default_backend())
+            now = datetime.now()
+            if cert.not_valid_before > now or cert.not_valid_after < now:
                 log.error('got invalid certificate date.')
                 raise CellError('Certificate expired.')
 
