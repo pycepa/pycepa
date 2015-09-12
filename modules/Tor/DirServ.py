@@ -63,7 +63,7 @@ class DirServ(Module):
         self.wanted_routers.append(flags)
 
         if not self.retrieved_consensus:
-            self.retrieve_servers()
+            # self.retrieve_servers()
             self.retrieve_consensus()
             self.retrieved_consensus = True
             return

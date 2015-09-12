@@ -90,31 +90,45 @@ class Relay(FixedCell):
     """
     cell_type = 3
 
-    def get_str(self):
+    def get_str(self, include_digest=True):
         """
         Returns the packed data without sending so that it can be encrypted.
         """
+        if isinstance(self.data, str):
+            return self.data
+
         if not self.data['data']:
             self.data['data'] = ''
 
+        if include_digest:
+            digest = self.data['digest']
+        else:
+            digest = '\x00' * 4
+
         return struct.pack('>BHH4sH498s', self.data['command'], 0,
-            self.data['stream_id'], self.data['digest'], len(self.data['data']),
-            self.data['data'])
+            self.data['stream_id'], digest, len(self.data['data']), self.data['data'])
 
     def parse(self):
         """
         Parse a received relay cell after decryption. This currently can't be implemented
         as a part of the unpack() function because the data must first be decrypted.
         """
-        headers = struct.unpack('>BHHIH', self.data[:11])
+        headers = struct.unpack('>BHH4sH', self.data[:11])
         self.data = self.data[11:]
 
-        if len(self.data) < headers[4]:
-            raise CellError('Could not parse relay length.')
+        print headers
+
+        if len(self.data) < headers[4] or headers[1]:
+            raise CellError('Invalid relay packet (possibly not from this OR).')
+
+        try:
+            text = relay_commands[headers[0]]
+        except IndexError:
+            raise CellError('Invalid relay packet command.')
 
         self.data = {
             'command': headers[0],
-            'command_text': relay_commands[headers[0]],
+            'command_text': text,
             'recognized': headers[1],
             'stream_id': headers[2],
             'digest': headers[3],
@@ -277,6 +291,12 @@ class Netinfo(FixedCell):
         """
         return struct.pack('>BB', 4, 4) + socket.inet_aton(ip)
 
+class RelayEarly(Relay):
+    """
+    RelayEarly cell.
+    """
+    cell_type = 9
+
 class Create2(FixedCell):
     """
     Create2 cell.
@@ -383,6 +403,7 @@ cell_types = {
     6: CreatedFast,
     7: Versions,
     8: Netinfo,
+    9: RelayEarly,
     10: Create2,
     11: Created2,
     129: Certs,

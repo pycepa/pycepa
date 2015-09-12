@@ -14,13 +14,18 @@ from cryptography.hazmat.primitives.hmac import HMAC
 from cryptography.hazmat.backends import default_backend
 import curve25519
 
+import base64
 import ssl
 import random
 import struct
 import logging
+import socket
 
 log = logging.getLogger(__name__)
 bend = default_backend()
+
+def b64decode(data):
+    return base64.b64decode(data + '=' * (len(data) % 4))
 
 def hmac(key, msg):
     hmac = HMAC(key, algorithm=SHA256(), backend=bend)
@@ -35,6 +40,33 @@ def sha1(msg):
     sha = Hash(SHA1(), backend=bend)
     sha.update(msg)
     return sha.finalize()
+
+def hash_func(shared):
+    return shared
+
+circuit = [
+    {
+        'name': 'SoulOfTheInternet',
+        'identity': 'Bn+ciFveEejIbpXMfsRdSMIqhbM',
+        'ntor-onion-key': 'ke4UGT4lz5w0qLW3iAo6lKNSWzCOtqeTgKV71D25CEE=',
+        'ip': '109.239.48.152',
+        'or_port': 6666
+    },
+    {
+        'name': 'somerandomrelay',
+        'identity': 'Bro6UtYfzynG8m4ZU7BQthvYT5U',
+        'ntor-onion-key': 'Ya9kbcPazEARb25B37Y8YJ+iO0HjoCBQxPfztr8Bc2Y=',
+        'ip': '37.139.3.231',
+        'or_port': 9001
+    },
+    {
+        'name': 'aurora',
+        'identity': 'N5+0UAENFweLN2bCJzMDw1jDpEI',
+        'ntor-onion-key': '52jPYtN+/mNeaQN2D1AWw1qkvLJh1RJTh6bwlaq0fFQ=',
+        'ip': '176.126.252.12',
+        'or_port': 8080
+    }
+]
 
 class TorStream(LocalModule):
     """
@@ -138,115 +170,145 @@ class Circuit(LocalModule):
         """
         super(Circuit, self).__init__()
         self._events = proxy._events
-        self.node = proxy.node
-        self.node_id = (self.node['identity'] + '=').decode('base64')
+    
+    
         self.counter = 0
-
         self.circuit_id = circuit_id or random.randint(1<<31, 1<<32)
-
         self.established = False
-        self.streams     = {}
+        self.streams = {}
+        self.pending_ntors = []
+        self.pending_ntor = None
+        self.circuit = []
 
         self.register_local('%d_got_cell_Created2' % self.circuit_id, self.crypt_init_ntor)
-        self.register_local('%d_got_cell_CreatedFast' % self.circuit_id, self.crypt_init_tap)
-        self.register_local('%d_got_cell_Relay' % self.circuit_id, self.recv_cell)
+        self.register_local('%d_got_cell_Relay' % self.circuit_id, self.recv_relay_cell)
+        self.register_local('%d_%d_got_relay_EXTENDED2' % (self.circuit_id, 0), 
+            self.crypt_init_ntor)
+
         self.register_local('%d_do_ntor_handshake' % self.circuit_id, self.do_ntor)
-        self.register_local('%d_do_tap_handshake' % self.circuit_id, self.do_tap)
 
         log.info('initializing circuit id %d' % self.circuit_id)
+        map(self.do_ntor, circuit)
 
-    def aes_init(self, Df, Db, Kf, Kb):
+    def aes_init(self, node, Df, Db, Kf, Kb):
         """
         Initializes the AES encryption / decryption objects.
         """
-        self.send_digest = Hash(SHA1(), backend=bend)
-        self.send_digest.update(Df)
-        self.recv_digest = Hash(SHA1(), backend=bend)
-        self.recv_digest.update(Db)
+        cipher = {}
 
-        self.encrypt = Cipher(AES(Kf), CTR('\x00' * 16), backend=bend).encryptor()
-        self.decrypt = Cipher(AES(Kb), CTR('\x00' * 16), backend=bend).decryptor()
+        cipher['node'] = node
+        cipher['send_digest'] = Hash(SHA1(), backend=bend)
+        cipher['send_digest'].update(Df)
+        cipher['recv_digest'] = Hash(SHA1(), backend=bend)
+        cipher['recv_digest'].update(Db)
 
-    def do_tap(self):
-        """
-        Create our CreateFast cell. Initializes the key material that we will be using.
+        cipher['encrypt'] = Cipher(AES(Kf), CTR('\x00' * 16), backend=bend).encryptor()
+        cipher['decrypt'] = Cipher(AES(Kb), CTR('\x00' * 16), backend=bend).decryptor()
 
-        Local events raised:
-            * send_cell <cell> [data] - sends a cell.
-        """
-        c = cell.CreateFast(self.circuit_id)
-        self.Y = c.key_material
-        self.trigger_local('send_cell', c)
+        self.circuit.append(cipher)
 
-    def do_ntor(self):
+    # deprecating this, i don't see a good reason for a client to need to use the TAP
+    # handshake.    
+    # def do_tap(self):
+    #    """
+    #    Create our CreateFast cell. Initializes the key material that we will be using.
+    #
+    #    Local events raised:
+    #        * send_cell <cell> [data] - sends a cell.
+    #    """
+    #    c = cell.CreateFast(self.circuit_id)
+    #    self.Y = c.key_material
+    #    self.trigger_local('send_cell', c)
+
+    def do_ntor(self, node):
         """
         Initializes the ntor handshake.
 
         Local events raised:
             * send_cell <cell> [data] - sends a cell.
         """
-        self.x = curve25519.Private()
-        self.X = self.x.get_public()
-        self.B = curve25519.Public(self.node['ntor-onion-key'].decode('base64'))
+        if self.pending_ntor:
+            self.pending_ntors.append(node)
+            return
+        elif self.pending_ntors and node == self.pending_ntors[0]:
+            self.pending_ntors.remove(node)
 
-        handshake  = self.node_id
-        handshake += self.B.public
-        handshake += self.X.public
-        self.trigger_local('send_cell', cell.Create2(self.circuit_id), handshake)
+        cinfo = {}
+        cinfo['node'] = node
+        cinfo['x'] = curve25519.Private()
+        cinfo['X'] = cinfo['x'].get_public()
+        cinfo['B'] = curve25519.Public(b64decode(node['ntor-onion-key']))
 
-    def crypt_init_tap(self, circuit_id, c):
-        """
-        Finish the TAP handshake after receiving CreatedFast (tor-spec.txt,
-        section 5.1.3).
-        """
-        self.X = c.key_material
-        k0 = self.Y + self.X
+        handshake  = b64decode(node['identity'])
+        handshake += cinfo['B'].serialize()
+        handshake += cinfo['X'].serialize()
+        
+        self.pending_ntor = cinfo
 
-        K, i = '', 0
-        while len(K) < 2*16 + 3*20:
-            K += sha1(k0 + chr(i))
-            i += 1
+        if not self.circuit:
+            self.trigger_local('send_cell', cell.Create2(self.circuit_id), handshake)
+        else:
+            identity = b64decode(cinfo['node']['identity'])
 
-        Kh = K[:20]
-        Df = K[20:40]
-        Db = K[40:60]
-        Kf = K[60:76]
-        Kb = K[76:92]
+            data  = struct.pack('>B', 2)
+            data += struct.pack('>BB4sH', 0, 6, socket.inet_aton(cinfo['node']['ip']), 
+                cinfo['node']['or_port'])
+            data += struct.pack('>BB20s', 2, 20, identity)
+            data += struct.pack('>HH', 2, len(handshake)) + handshake
 
-        self.aes_init(Df, Db, Kf, Kb)
-        self.circuit_initialized()
+            self.send_relay_cell('RELAY_EXTEND2', data=data)
+
+    # deprecating tap handshakes
+    # def crypt_init_tap(self, circuit_id, c):
+    #    """
+    #    Finish the TAP handshake after receiving CreatedFast (tor-spec.txt,
+    #    section 5.1.3).
+    #    """
+    #    self.X = c.key_material
+    #    k0 = self.Y + self.X
+    #
+    #    K, i = '', 0
+    #    while len(K) < 2*16 + 3*20:
+    #        K += sha1(k0 + chr(i))
+    #        i += 1
+    #
+    #    Kh = K[:20]
+    #    Df = K[20:40]
+    #    Db = K[40:60]
+    #    Kf = K[60:76]
+    #    Kb = K[76:92]
+    #
+    #    self.aes_init(Df, Db, Kf, Kb)
+    #    self.circuit_initialized()
 
     def crypt_init_ntor(self, circuit_id, c):
         """
         Finish the ntor handshake once we receive the Created2
         """
-        self.Y = curve25519.Public(c.Y)
-        self.auth = c.auth
+        cinfo, self.pending_ntor = self.pending_ntor, None
 
-        def hash_func(shared):
-            return shared
+        print '?'
 
-        si  = self.x.get_shared_key(self.Y, hash_func)
-        si += self.x.get_shared_key(self.B, hash_func)
-        si += self.node_id
-        si += self.B.public
-        si += self.X.public
-        si += self.Y.public
+        si  = cinfo['x'].get_shared_key(curve25519.Public(c.Y), hash_func)
+        si += cinfo['x'].get_shared_key(cinfo['B'], hash_func)
+        si += b64decode(cinfo['node']['identity'])
+        si += cinfo['B'].serialize()
+        si += cinfo['X'].serialize()
+        si += c.Y
         si += 'ntor-curve25519-sha256-1'
 
         key_seed = hmac('ntor-curve25519-sha256-1:key_extract', si)
         verify = hmac('ntor-curve25519-sha256-1:verify', si)
 
         ai  = verify
-        ai += self.node_id
-        ai += self.B.public
-        ai += self.Y.public
-        ai += self.X.public
+        ai += b64decode(cinfo['node']['identity'])
+        ai += cinfo['B'].serialize()
+        ai += c.Y
+        ai += cinfo['X'].serialize()
         ai += 'ntor-curve25519-sha256-1'
         ai += 'Server'
         
-        auth = hmac('ntor-curve25519-sha256-1:mac', ai)
-        if self.auth != auth:
+        if c.auth != hmac('ntor-curve25519-sha256-1:mac', ai):
             log.error('bad ntor handshake.') 
             self.trigger_local('die')
             return
@@ -254,8 +316,22 @@ class Circuit(LocalModule):
         keys = hkdf(key_seed, length=72, info='ntor-curve25519-sha256-1:key_expand')
         Df, Db, Kf, Kb = struct.unpack('>20s20s16s16s', keys)
 
-        self.aes_init(Df, Db, Kf, Kb)
-        self.circuit_initialized()
+        node = cinfo['node']
+
+        # deleting this from memory. maybe a ctypes secure delete function would be better.
+        del cinfo
+        del ai
+        del si
+        del key_seed
+        del verify
+        del keys
+
+        self.aes_init(node, Df, Db, Kf, Kb)
+
+        if self.pending_ntors:
+            self.do_ntor(self.pending_ntors[0])
+        else:
+            self.circuit_initialized()
 
     def connect(self, stream_id):
         """
@@ -280,7 +356,7 @@ class Circuit(LocalModule):
         self.trigger_local('%d_%d_stream_initialized' % (self.circuit_id,
             stream_id), self.circuit_id, stream_id)
 
-    def recv_cell(self, circuit_id, c):
+    def recv_relay_cell(self, circuit_id, c):
         """
         Cell received. If it's a CreatedFast this is a fresh circuit that is ready to use.
         If it's a relay cell, then it gets forwarded to the appropriate stream.
@@ -298,22 +374,53 @@ class Circuit(LocalModule):
                 - cell received on this circuit for the given stream.
 
         """
-        if isinstance(c, cell.Relay):
-            c.data = self.decrypt.update(c.data)
-            c.parse()
+        found = None
+        data = c.data
 
-            if c.data['command_text'] == 'RELAY_DATA':
-                self.counter += 1
-                if self.counter == 100:
-                    self.counter = 0
-                    self.trigger_local('%d_send_relay_cell' % self.circuit_id,
-                        'RELAY_SENDME')
+        for OR in self.circuit[::-1]:
+            c.data = OR['decrypt'].update(data)
 
-            if c.data['stream_id'] in self.streams:
-                self.trigger_local('%d_%d_got_relay' % (self.circuit_id,
-                    c.data['stream_id']), self.circuit_id, c.data['stream_id'], c)
+            try:
+                c.parse()
+            except cell.CellError as e:
+                print ":( %s" % e
+                continue
 
-    def send_relay_cell(self, command, stream_id=None, data=None):
+            digest = OR['recv_digest'].copy()
+            digest.update(c.get_str(False))
+            tmp_digest = digest.copy()
+
+            digest = digest.finalize()[:4]
+
+            if c.data['digest'] != digest:
+                continue
+            else:
+                found = OR
+                break
+
+        if not found:
+            return
+
+        print 'test'
+        found['recv_digest'] = tmp_digest
+
+        if c.data['command_text'] == 'RELAY_DATA':
+            self.counter += 1
+            if self.counter == 100:
+                self.counter = 0
+                self.trigger_local('%d_send_relay_cell' % self.circuit_id,
+                    'RELAY_SENDME')
+        elif c.data['command_text'] == 'RELAY_EXTENDED2':
+            _, c.Y, c.auth = struct.unpack('>H32s32s', c.data['data'])
+
+            self.trigger_local('%d_%d_got_relay_EXTENDED2' % (self.circuit_id, 0),
+                self.circuit_id, c)
+            
+        if c.data['stream_id'] in self.streams:
+            self.trigger_local('%d_%d_got_relay' % (self.circuit_id,
+                c.data['stream_id']), self.circuit_id, c.data['stream_id'], c)
+
+    def send_relay_cell(self, command, stream_id=None, data=None, last=None):
         """
         Generate, encrypt, and send a relay cell with the given command. If the
         command is a string, it will be converted to the command id.
@@ -321,23 +428,41 @@ class Circuit(LocalModule):
         Circuit local events raised:
             * send_cell <cell> [stream_id] [data] - sends a cell.
         """
-        c = cell.Relay(self.circuit_id)
-
         if isinstance(command, str):
             command = cell.relay_name_to_command(command)
 
-        c.init_relay({
-            'command': command,
-            'stream_id': stream_id or 0,
-            'digest': '\x00' * 4,
-            'data': data
-        })
+        # RELAY_EXTEND2
+        if command == cell.relay_name_to_command('RELAY_EXTEND2'):
+            c = cell.RelayEarly(self.circuit_id)
+        else:
+            c = cell.Relay(self.circuit_id)
 
-        self.send_digest.update(c.get_str())
-        digest = self.send_digest.copy()
-        c.data['digest'] = digest.finalize()[:4]
+        got_dest = None
+        for OR in self.circuit[::-1]:
+            if not got_dest and last and OR['node'] != last:
+                continue
 
-        c.data = self.encrypt.update(c.get_str())
+            if not got_dest:
+                got_dest = True
+
+                c.init_relay({
+                    'command': command,
+                    'stream_id': stream_id or 0,
+                    'data': data
+                })
+
+                OR['send_digest'].update(c.get_str(False))
+                digest = OR['send_digest'].copy()
+                c.data['digest'] = digest.finalize()[:4]
+
+                data = c.data
+                c.data = c.get_str()
+                c.parse()
+                print c.data
+                c.data = data
+
+            c.data = OR['encrypt'].update(c.get_str())
+
         self.trigger_local('send_cell', c)
 
     def circuit_initialized(self):
@@ -356,10 +481,14 @@ class Circuit(LocalModule):
         """
         self.established = True
         log.info('established circuit id %d.' % self.circuit_id)
+        self.register_local('%d_extend' % self.circuit_id, self.extend)
         self.register_local('%d_init_directory_stream' % self.circuit_id, 
             self.init_directory_stream)
         self.register_local('%d_send_relay_cell' % self.circuit_id, self.send_relay_cell)
         self.trigger_local('%d_circuit_initialized' % self.circuit_id, self.circuit_id)
+
+    def extend(self, node):
+        self.trigger_local('%d_do_ntor_handshake' % circuit.circuit_id, node)
 
 class TorConnection(TLSClient):
     """
@@ -401,7 +530,9 @@ class TorConnection(TLSClient):
             'ECDH-ECDSA-DES192-SHA:RSA-FIPS-3DES-EDE-SHA:RSA-DES192-SHA'
         )
 
-        log.info('initiating connection to guard node.')
+        log.info('initiating connection to guard node %s: %s:%d.' % (self.node['name'], 
+            self.node['ip'], self.node['or_port']))
+
         self.register_local('handshook', self.initial_handshake)
         self.register_local('received', self.received)
         self.register_local('send_cell', self.send_cell)
@@ -472,7 +603,7 @@ class TorConnection(TLSClient):
         circuit = Circuit(self)
         self.register_local('%d_circuit_initialized' % circuit.circuit_id,
             self.circuit_initialized)
-        self.trigger_local('%d_do_ntor_handshake' % circuit.circuit_id)
+        self.trigger_local('%d_do_ntor_handshake' % circuit.circuit_id, self.node)
         return circuit.circuit_id
 
     def circuit_initialized(self, circuit_id):
@@ -576,9 +707,9 @@ class Proxy(Module):
         self.streams.append(stream_id)
 
         if not self.connections and not self.connections_pending:
-            self.register('tor_%s_proxy_initialized' % authorities[0]['name'],
+            self.register('tor_%s_proxy_initialized' % circuit[0]['name'],
                 self.proxy_initialized)
-            self.connections_pending.append(TorConnection(authorities[0]))
+            self.connections_pending.append(TorConnection(circuit[0]))
         elif self.connections:
             self.trigger('tor_%s_init_directory_stream' % self.connections[0].name,
                 stream_id)
