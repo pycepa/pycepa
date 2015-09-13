@@ -20,6 +20,7 @@ import random
 import struct
 import logging
 import socket
+import traceback
 
 log = logging.getLogger(__name__)
 bend = default_backend()
@@ -207,19 +208,6 @@ class Circuit(LocalModule):
 
         self.circuit.append(cipher)
 
-    # deprecating this, i don't see a good reason for a client to need to use the TAP
-    # handshake.    
-    # def do_tap(self):
-    #    """
-    #    Create our CreateFast cell. Initializes the key material that we will be using.
-    #
-    #    Local events raised:
-    #        * send_cell <cell> [data] - sends a cell.
-    #    """
-    #    c = cell.CreateFast(self.circuit_id)
-    #    self.Y = c.key_material
-    #    self.trigger_local('send_cell', c)
-
     def do_ntor(self, node):
         """
         Initializes the ntor handshake.
@@ -228,6 +216,7 @@ class Circuit(LocalModule):
             * send_cell <cell> [data] - sends a cell.
         """
         if self.pending_ntor:
+            print 'XXX: %s' % node
             self.pending_ntors.append(node)
             return
         elif self.pending_ntors and node == self.pending_ntors[0]:
@@ -258,36 +247,11 @@ class Circuit(LocalModule):
 
             self.send_relay_cell('RELAY_EXTEND2', data=data)
 
-    # deprecating tap handshakes
-    # def crypt_init_tap(self, circuit_id, c):
-    #    """
-    #    Finish the TAP handshake after receiving CreatedFast (tor-spec.txt,
-    #    section 5.1.3).
-    #    """
-    #    self.X = c.key_material
-    #    k0 = self.Y + self.X
-    #
-    #    K, i = '', 0
-    #    while len(K) < 2*16 + 3*20:
-    #        K += sha1(k0 + chr(i))
-    #        i += 1
-    #
-    #    Kh = K[:20]
-    #    Df = K[20:40]
-    #    Db = K[40:60]
-    #    Kf = K[60:76]
-    #    Kb = K[76:92]
-    #
-    #    self.aes_init(Df, Db, Kf, Kb)
-    #    self.circuit_initialized()
-
     def crypt_init_ntor(self, circuit_id, c):
         """
         Finish the ntor handshake once we receive the Created2
         """
         cinfo, self.pending_ntor = self.pending_ntor, None
-
-        print '?'
 
         si  = cinfo['x'].get_shared_key(curve25519.Public(c.Y), hash_func)
         si += cinfo['x'].get_shared_key(cinfo['B'], hash_func)
@@ -377,13 +341,13 @@ class Circuit(LocalModule):
         found = None
         data = c.data
 
-        for OR in self.circuit[::-1]:
-            c.data = OR['decrypt'].update(data)
+        for OR in self.circuit:
+            c.data = data = OR['decrypt'].update(data)
+            log.debug('OR %s decrypting cell.' % OR['node']['name'])
 
             try:
                 c.parse()
             except cell.CellError as e:
-                print ":( %s" % e
                 continue
 
             digest = OR['recv_digest'].copy()
@@ -401,7 +365,6 @@ class Circuit(LocalModule):
         if not found:
             return
 
-        print 'test'
         found['recv_digest'] = tmp_digest
 
         if c.data['command_text'] == 'RELAY_DATA':
@@ -454,12 +417,6 @@ class Circuit(LocalModule):
                 OR['send_digest'].update(c.get_str(False))
                 digest = OR['send_digest'].copy()
                 c.data['digest'] = digest.finalize()[:4]
-
-                data = c.data
-                c.data = c.get_str()
-                c.parse()
-                print c.data
-                c.data = data
 
             c.data = OR['encrypt'].update(c.get_str())
 
@@ -603,7 +560,6 @@ class TorConnection(TLSClient):
         circuit = Circuit(self)
         self.register_local('%d_circuit_initialized' % circuit.circuit_id,
             self.circuit_initialized)
-        self.trigger_local('%d_do_ntor_handshake' % circuit.circuit_id, self.node)
         return circuit.circuit_id
 
     def circuit_initialized(self, circuit_id):

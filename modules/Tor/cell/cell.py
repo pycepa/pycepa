@@ -116,8 +116,6 @@ class Relay(FixedCell):
         headers = struct.unpack('>BHH4sH', self.data[:11])
         self.data = self.data[11:]
 
-        print headers
-
         if len(self.data) < headers[4] or headers[1]:
             raise CellError('Invalid relay packet (possibly not from this OR).')
 
