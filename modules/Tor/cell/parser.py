@@ -31,7 +31,7 @@ def parse_cell(in_buffer, _cell=None):
             log.warning('received unknown cell type: %d.' % header[1])
             raise cell.CellError('Unknown cell type: %d.' % header[1])
 
-        log.info('received cell header type %s' % cell.cell_type_to_name(header[1]))
+        log.debug('received cell header type %s' % cell.cell_type_to_name(header[1]))
     # Parse a fixed cell, just read in 509 bytes.
     elif _cell and _cell.fixed:
         if len(in_buffer) < 509:
