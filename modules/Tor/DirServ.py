@@ -138,7 +138,7 @@ class DirServ(Module):
 
         log.info('requesting %s from %s' % (cmd, self.ip_address))
 
-        request = self.trigger('http_get', url)
+        request = self.trigger('http_get', url, directory=True)
         if chunk:
             request.register_local('chunk', chunk)
         if done:

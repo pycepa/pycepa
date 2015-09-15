@@ -9,7 +9,7 @@ class TorSocket(LocalModule):
     """
     dependencies = ['Tor.Proxy']
 
-    def __init__(self, hostname, port, directory=False):
+    def __init__(self, host=None, directory=False):
         """
         Events registered:
             * tor_stream_<stream_id>_initialized - indicates that the stream is ready.
@@ -21,6 +21,9 @@ class TorSocket(LocalModule):
             * send <data> - send data through the stream.
         """
         super(TorSocket, self).__init__()
+
+        self.host = host
+        self.directory = directory
 
         self.stream_id = random.randint(1, 65535)
         self.register('tor_stream_%s_initialized' % self.stream_id, self.initialized)
@@ -36,7 +39,7 @@ class TorSocket(LocalModule):
         """
         Indicates that the stream is ready to use.
         """
-        if self.host:
+        if not self.directory:
             self.trigger('tor_stream_%d_init_tcp_stream' % self.stream_id, self.host[0],
                 self.host[1])
         else:
@@ -58,8 +61,9 @@ class TorSocket(LocalModule):
         Local events raised:
             * closed - indicates that the socket has closed.
         """
-        self.closed = True
-        self.trigger_local('closed')
+        if not self.closed:
+            self.closed = True
+            self.trigger_local('closed')
 
     def recv(self, data):
         """
@@ -79,12 +83,11 @@ class TorSocket(LocalModule):
         """
         self.trigger('tor_stream_%s_send' % self.stream_id, data)
 
-    def connect(self, host=None):
+    def connect(self):
         """
         Initialize a stream. If no host is provided, it is assumed to be a directory stream.
 
         Events raised:
             * tor_init_stream <stream_id> - create a stream with the given stream id.
         """
-        self.host = host
         self.trigger_avail('tor_init_stream', self.stream_id)

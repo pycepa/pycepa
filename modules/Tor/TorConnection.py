@@ -2,6 +2,7 @@ from core.TLSClient import TLSClient
 from modules.Tor.cell import cell
 from modules.Tor.cell import parser as cell_parser
 from modules.Tor.Circuit import Circuit
+import random
 import ssl
 
 import logging

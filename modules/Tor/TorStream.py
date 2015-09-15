@@ -1,4 +1,5 @@
 from core.LocalModule import LocalModule
+import struct
 import logging
 log = logging.getLogger(__name__)
 
@@ -136,4 +137,4 @@ class TorStream(LocalModule):
                                                                         over circuit.
         """
         self.circuit.trigger_local('%d_send_relay_cell' % self.circuit.circuit_id,
-            'RELAY_BEGIN', self.stream_id, data='%s:%d\00' + struct.pack('>I', 1))
+            'RELAY_BEGIN', self.stream_id, data='%s:%d\00' % (host, port))

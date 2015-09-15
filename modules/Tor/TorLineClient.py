@@ -7,12 +7,12 @@ class TorLineClient(TorSocket):
     Variation of the TorSocket that can return lines instead of chunked data. To switch
     between chunked and line-based data, toggle the chunked variable.
     """
-    def __init__(self, host, port):
+    def __init__(self, host=None, directory=False):
         """
         Local events registered:
             * received <data> - raised when data has been received from the socket.
         """
-        super(TorLineClient, self).__init__(host, port)
+        super(TorLineClient, self).__init__(host=host, directory=directory)
 
         self.register_local('received', self.parse_line)
         self.register_local('closed', self._closed)
@@ -54,5 +54,5 @@ class TorLineClient(TorSocket):
             for line in lines:
                 self.trigger_local('line', line)
 
-        if self.closed and not self.data:
+        if self.closed and not self.data and not self.chunked:
             self.trigger_local('line_closed')

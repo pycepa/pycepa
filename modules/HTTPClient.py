@@ -15,7 +15,7 @@ class HTTPRequest(TorLineClient):
     Tor-based HTTP client.
     """
 
-    def __init__(self, url, data=None, headers=None, method='GET'):
+    def __init__(self, url, directory=False, data=None, headers=None, method='GET'):
         """
         Local events registered:
             * connected     - the socket has connected.
@@ -36,7 +36,7 @@ class HTTPRequest(TorLineClient):
         self.url = urlparse.urlparse(url)
         self.port = self.url.port or 80 if self.url.scheme == 'http' else 443
 
-        super(HTTPRequest, self).__init__(self.url.hostname, self.port)
+        super(HTTPRequest, self).__init__((self.url.hostname, self.port), directory)
 
         self.register_local('connected', self.connected)
         self.register_local('line', self.parse)
@@ -141,10 +141,13 @@ class HTTPRequest(TorLineClient):
 
         self.trigger_local('data', chunk)
 
-        if 'content-length' in self.res and self.res['content-length'] <= self.res['num_bytes']:
+        if 'content-length' not in self.res:
+            return
+            
+        if self.res['content-length'] <= self.res['num_bytes']:
             log.info('all bytes read, closing connection.')
-            self.trigger_local('done')
             self.die()
+            # self.trigger_local('done')
 
     def content_length(self):
         """
@@ -218,10 +221,10 @@ class HTTPClient(Module):
         """
         self.register('http_get', self.get)
 
-    def get(self, url, headers=None):
+    def get(self, url, headers=None, directory=False):
         """
         Dispatches HTTP request.
         """
-        request = HTTPRequest(url, headers=headers)
+        request = HTTPRequest(url, headers=headers, directory=directory)
         request.init_module()
         return request
