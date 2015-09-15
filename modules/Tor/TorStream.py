@@ -125,6 +125,7 @@ class TorStream(LocalModule):
             * <circuit_id>_send_relay_cell <relay> <stream_id> - send relay cell over
                                                                  circuit.
         """
+        log.info('stream %d: opening directory stream' % self.stream_id)
         self.circuit.trigger_local('%d_send_relay_cell' % self.circuit.circuit_id,
             'RELAY_BEGIN_DIR', self.stream_id)
 
@@ -136,5 +137,6 @@ class TorStream(LocalModule):
             * <circuit_id>_send_relay_cell <relay> <stream_id> <data> - send relay cell
                                                                         over circuit.
         """
+        log.info('stream %d: opening tcp stream to: %s:%d' % (self.stream_id, host, port))
         self.circuit.trigger_local('%d_send_relay_cell' % self.circuit.circuit_id,
             'RELAY_BEGIN', self.stream_id, data='%s:%d\00' % (host, port))
