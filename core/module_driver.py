@@ -52,8 +52,8 @@ class Modules(object):
         module = importlib.import_module('%s.%s' % (self.module_dir, module_name))
 
         self.pending_modules[module_name] = getattr(module, module_name.split('.')[-1])()
-        self.pending_modules[module_name].init_module()
         events.register_once('module_loaded_%s' % module_name, self.module_loaded)
+        self.pending_modules[module_name].init_module()
 
     def unload_module(self, module_name):
         """
