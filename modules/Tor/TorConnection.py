@@ -35,18 +35,21 @@ class TorConnection(TLSClient):
 
         super(TorConnection, self).__init__(node['ip'], node['or_port'])
 
-        self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        self.context.set_ciphers(
-            'ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA:'
-            'DHE-DSS-AES256-SHA:ECDH-RSA-AES256-SHA:ECDH-ECDSA-AES256-SHA:'
-            'ECDHE-ECDSA-RC4-SHA:ECDHE-ECDSA-AES128-SHA:'
-            'ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA:'
-            'DHE-DSS-AES128-SHA:ECDH-RSA-RC4-SHA:ECDH-RSA-AES128-SHA:'
-            'ECDH-ECDSA-RC4-SHA:ECDH-ECDSA-AES128-SHA:RSA-RC4-MD5:RSA-RC4-SHA:'
-            'RSA-AES128-SHA:ECDHE-ECDSA-DES192-SHA:ECDHE-RSA-DES192-SHA:'
-            'EDH-RSA-DES192-SHA:EDH-DSS-DES192-SHA:ECDH-RSA-DES192-SHA:'
-            'ECDH-ECDSA-DES192-SHA:RSA-FIPS-3DES-EDE-SHA:RSA-DES192-SHA'
-        )
+        if hasattr(ssl, 'SSLContext'):
+            self.context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            self.context.set_ciphers(
+                'ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES256-SHA:'
+                'DHE-DSS-AES256-SHA:ECDH-RSA-AES256-SHA:ECDH-ECDSA-AES256-SHA:'
+                'ECDHE-ECDSA-RC4-SHA:ECDHE-ECDSA-AES128-SHA:'
+                'ECDHE-RSA-RC4-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA:'
+                'DHE-DSS-AES128-SHA:ECDH-RSA-RC4-SHA:ECDH-RSA-AES128-SHA:'
+                'ECDH-ECDSA-RC4-SHA:ECDH-ECDSA-AES128-SHA:RSA-RC4-MD5:RSA-RC4-SHA:'
+                'RSA-AES128-SHA:ECDHE-ECDSA-DES192-SHA:ECDHE-RSA-DES192-SHA:'
+                'EDH-RSA-DES192-SHA:EDH-DSS-DES192-SHA:ECDH-RSA-DES192-SHA:'
+                'ECDH-ECDSA-DES192-SHA:RSA-FIPS-3DES-EDE-SHA:RSA-DES192-SHA'
+            )
+        else:
+            self.context = ssl
 
         log.info('initiating connection to guard node %s: %s:%d.' % (self.node['name'], 
             self.node['ip'], self.node['or_port']))
