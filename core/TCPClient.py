@@ -119,12 +119,10 @@ class TCPClient(LocalModule):
 
         self.trigger_local('setup')
 
-        try:
-            self.sock.connect((self.host, self.port))
-        except socket.error as err:
-            if errno.errorcode[err.errno] != 'EINPROGRESS':
-                self.die()
-                return
+        err = self.sock.connect_ex((self.host, self.port))
+        if errno.errorcode[err] != 'EINPROGRESS':
+            self.die()
+            return
 
         self.connecting = True
 
