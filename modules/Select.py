@@ -3,6 +3,11 @@ import select
 import logging
 log = logging.getLogger(__name__)
 
+if not hasattr(select, 'poll'):
+    select.POLLIN = 1
+    select.POLLOUT = 4
+    select.POLLPRI = 2
+
 class SelectPoll(object):
     def __init__(self):
         self.fds = {}
