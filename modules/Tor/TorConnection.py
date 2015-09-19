@@ -49,6 +49,7 @@ class TorConnection(TLSClient):
                 'ECDH-ECDSA-DES192-SHA:RSA-FIPS-3DES-EDE-SHA:RSA-DES192-SHA'
             )
         else:
+            log.warning('older python version detected, falling back to old TLS versions.')
             self.context = ssl
 
         log.info('initiating connection to guard node %s: %s:%d.' % (self.node['name'], 

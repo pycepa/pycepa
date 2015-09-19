@@ -3,6 +3,61 @@ import select
 import logging
 log = logging.getLogger(__name__)
 
+class SelectPoll(object):
+    def __init__(self):
+        self.fds = {}
+
+    def poll(self):
+        r, w, x = select.select(self.readable(), self.writable(), self.exceptional())
+
+        events = {} 
+        self.collate_events(r, select.POLLIN, events)
+        self.collate_events(w, select.POLLOUT, events)
+        self.collate_events(x, select.POLLPRI, events)
+
+        final_events = []
+        for fd in events:
+            mask = 0
+
+            for event in events[fd]:
+                mask |= event
+
+            final_events.append([ fd, mask ])
+
+        return final_events
+
+    def register(self, fd, events):
+        self.fds[fd] = events
+
+    def unregister(self, fd):
+        if fd in self.fds:
+            del self.fds[fd]
+
+    def readable(self):
+        return self.select_event(select.POLLIN)
+
+    def writable(self):
+        return self.select_event(select.POLLOUT)
+
+    def exceptional(self):
+        return self.select_event(select.POLLPRI)
+
+    def collate_events(self, fds, event, events):
+        for fd in fds:
+            if fd in events:
+                events[fd].append(event)
+            else:
+                events[fd] = [ event ]
+
+    def select_event(self, event):
+        selected = []
+
+        for fd in self.fds:
+            if self.fds[fd] & event:
+                selected.append(fd)
+
+        return selected
+
 class Select(Module):
     def module_load(self):
         """
@@ -28,7 +83,11 @@ class Select(Module):
         self.register('fd_unexceptional', self.fd_unexceptional)
 
         self.fds = {}
-        self.poll = select.poll()
+
+        if hasattr(select, 'poll'):
+            self.poll = select.poll()
+        else:
+            self.poll = SelectPoll()
 
     def booted(self):
         """
@@ -45,7 +104,7 @@ class Select(Module):
             event_strings = {
                 select.POLLIN: 'fd_%s_readable',
                 select.POLLOUT: 'fd_%s_writable',
-                select.POLLPRI: 'fd_%s_exceptional',
+                select.POLLPRI: 'fd_%s_exceptional'
             }
 
             if not events:
