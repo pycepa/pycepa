@@ -41,7 +41,7 @@ class TLSClient(TCPClient):
             if err.args[0] != ssl.SSL_ERROR_WANT_READ:
                 self.die()
         except socket.error as e:
-            print traceback.print_exc(e)
+            print(traceback.print_exc(e))
             log.error('socket error: %s' % e)
             self.die()
 

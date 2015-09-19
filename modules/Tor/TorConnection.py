@@ -4,6 +4,7 @@ from modules.Tor.cell import parser as cell_parser
 from modules.Tor.Circuit import Circuit
 import random
 import ssl
+from base64 import b16encode
 
 import logging
 log = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class TorConnection(TLSClient):
         self.node = node
         self.circuits = []
         self.cell = None
-        self.in_buffer = ''
+        self.in_buffer = b''
         self.name = node['name']
 
         super(TorConnection, self).__init__(node['ip'], node['or_port'])
@@ -89,7 +90,7 @@ class TorConnection(TLSClient):
 
         while self.in_buffer:
             try:
-                log.debug('received data: %s' % self.in_buffer.encode('hex'))
+                log.debug('received data: %s' % b16encode(self.in_buffer))
                 self.in_buffer, self.cell, ready, cont = cell_parser.parse_cell(
                     self.in_buffer, self.cell)
             except cell.CellError as e:
@@ -117,7 +118,7 @@ class TorConnection(TLSClient):
         if not data:
             data = ''
         log.debug('sending cell type %s' % cell.cell_type_to_name(c.cell_type))
-        log.debug('sending cell: ' + c.pack(data).encode('hex'))
+        log.debug('sending cell: %s' % b16encode(c.pack(data)))
         self.trigger_local('send', c.pack(data))
 
     def init_circuit(self):

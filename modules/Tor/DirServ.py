@@ -1,5 +1,6 @@
 from core.Module import Module
 import socket
+from base64 import b64decode, b64encode, b16decode, b16encode
 
 import logging
 log = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class DirServ(Module):
         log.debug('parsed microdescriptor: %s' % md)
 
         try:
-            fp = (md['digest'] + '=').decode('base64').encode('hex')
+            fp = b16encode(b64decode(md['digest'] + '='))
         except binascii.Error:
             return
 

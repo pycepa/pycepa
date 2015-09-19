@@ -30,7 +30,7 @@ class Modules(object):
             if module_name.endswith('.py'):
                 module_name = '.'.join(module_name.split('.')[:-1])
 
-            if module_name in [ '__init__', 'Module' ]:
+            if module_name in [ '__pycache__', '__init__', 'Module' ]:
                 continue
 
             self.load_module(module_name)

@@ -23,7 +23,7 @@ class TCPClient(LocalModule):
         self.port = port
 
         self.reads = []
-        self.write_buffer = ''
+        self.write_buffer = b''
 
         self.register_local('send', self.send)
         self.register_local('close', self.die)
@@ -71,7 +71,7 @@ class TCPClient(LocalModule):
             self.write_buffer = self.write_buffer[num_bytes:]
 
             if not self.write_buffer or not num_bytes:
-                self.write_buffer = ''
+                self.write_buffer = b''
                 self.trigger('fd_unwritable', self.sock)
 
     def exceptional(self, client):

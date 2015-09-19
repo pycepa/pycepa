@@ -1,6 +1,10 @@
 from core.Module import Module
 from modules.Tor.TorLineClient import TorLineClient
-import urlparse
+
+try:
+    import urlparse
+except ImportError:
+    import urllib.parse as urlparse
 import re
 
 import logging

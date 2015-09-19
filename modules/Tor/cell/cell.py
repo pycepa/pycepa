@@ -213,7 +213,7 @@ class Versions(VariableCell):
         Parse the received versions.
         """
         super(Versions, self).unpack(data)
-        self.versions = struct.unpack('>' + 'H' * (len(self.data) / 2), self.data)
+        self.versions = struct.unpack('>' + 'H' * int(len(self.data) / 2), self.data)
 
     def pack(self, data):
         """
@@ -245,7 +245,10 @@ class Netinfo(FixedCell):
         self.router_addresses = []
 
         # iterate over OR addresses.
-        num_addresses = struct.unpack('B', data[0])[0]
+        num_addresses = data[0]
+        if not isinstance(num_addresses, int):
+            num_addresses = struct.unpack('B', num_addresses)[0]
+
         data = data[1:]
         for _ in range(num_addresses):
             host_type, address, data = self.decode_ip(data)
@@ -329,8 +332,12 @@ class Certs(VariableCell):
         super(Certs, self).unpack(data)
 
         data      = self.data
-        num_certs = struct.unpack('>B', data[0])[0]
-        data      = data[1:]
+
+        num_certs = data[0]
+        if not isinstance(num_certs, int):
+            num_certs = struct.unpack('>B', num_certs)[0]
+
+        data = data[1:]
 
         now = datetime.now().strftime('%Y%m%d%H%M%S%z')
 
